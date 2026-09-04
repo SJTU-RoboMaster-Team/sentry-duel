@@ -1,31 +1,31 @@
-# Sentry Duel / 哨兵大战
+# 哨兵大战
 
-上海交通大学交龙战队校内赛 AI 赛道的开源比赛平台，包含 7x7 回合制比赛引擎、网页对战与回放前端、示例 AI，以及可直接用于 PPO/self-play 训练的强化学习环境。
+上海交通大学交龙战队校内赛 AI 赛道的开源比赛平台，包含 7x7 回合制比赛引擎、网页对战与回放前端、示例 AI，以及可直接用于 PPO 自我对弈训练的强化学习环境。
 
-Online platform: <https://jiaoloong.sjtu.edu.cn/contest2026/>
+在线赛事平台：<https://jiaoloong.sjtu.edu.cn/contest2026/>
 
-## Repository Contents
+## 仓库内容
 
 ```text
-engine/             C++17 rules engine, match runner and human runner
-ai/                 Baseline/Hunter examples and RL deployment adapter
-rl/env/             pybind11 vectorized training environment
-rl/training/        PPO training, evaluation and C++ weight export
-server/             FastAPI API and browser UI
-sentry_duel_docs/   Game rules and contestant API reference
-cli/                Local match runner
+engine/             C++17 规则引擎、对局运行器和人机对战运行器
+ai/                 Baseline/Hunter 示例与 RL 部署适配器
+rl/env/             pybind11 向量化训练环境
+rl/training/        PPO 训练、评测和 C++ 权重导出工具
+server/             FastAPI 接口与浏览器前端
+sentry_duel_docs/   比赛规则与选手 API 文档
+cli/                本地对局运行器
 ```
 
-Generated weights, checkpoints, logs, compiled libraries, user uploads and production deployment configuration are intentionally excluded.
+仓库不包含训练权重、检查点、日志、编译产物、用户上传数据与生产环境部署配置。
 
-## Prerequisites
+## 环境要求
 
-- Linux (the match runner uses POSIX signals and `dlopen`)
-- CMake 3.10+
-- A C++17 compiler
-- Python 3.10+
+- Linux（对局运行器使用 POSIX 信号和 `dlopen`）
+- CMake 3.10 或更高版本
+- 支持 C++17 的编译器
+- Python 3.10 或更高版本
 
-For the web platform:
+运行网页平台需要安装：
 
 ```bash
 python3 -m venv .venv
@@ -33,13 +33,13 @@ source .venv/bin/activate
 pip install -r server/requirements.txt
 ```
 
-For RL training, additionally install:
+进行 RL 训练还需安装：
 
 ```bash
 pip install -r requirements-rl.txt
 ```
 
-## Build And Run A Match
+## 构建并运行对局
 
 ```bash
 cmake -S engine -B engine/build
@@ -51,18 +51,18 @@ python3 cli/run_match.py \
   --game-id demo
 ```
 
-## Run The Web UI
+## 运行网页平台
 
 ```bash
 cd server
 ../.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-Open <http://127.0.0.1:8000/>. Local mode uses a test account by default. The production JAccount integration is only enabled when `SENTRY_DUEL_AUTH_REQUIRED=1`.
+打开 <http://127.0.0.1:8000/>。本地模式默认使用测试账号；只有将 `SENTRY_DUEL_AUTH_REQUIRED` 设为 `1` 时才会启用生产环境的 JAccount 登录。
 
-## RL Training
+## 强化学习训练
 
-Build the engine, scripted opponents and Python extension:
+首先构建比赛引擎、脚本对手和 Python 扩展：
 
 ```bash
 cmake -S engine -B engine/build
@@ -71,7 +71,7 @@ make -C ai
 bash rl/env/build.sh
 ```
 
-Run a small smoke training job:
+运行小规模冒烟训练：
 
 ```bash
 python3 rl/training/train.py \
@@ -82,7 +82,7 @@ python3 rl/training/train.py \
   --max-iters 5
 ```
 
-Run league self-play:
+运行联赛式自我对弈训练：
 
 ```bash
 python3 rl/training/train.py \
@@ -92,9 +92,9 @@ python3 rl/training/train.py \
   --steps-per-iter 65536
 ```
 
-The observation, action, reward and binary weight contracts are documented in [rl/SPEC.md](rl/SPEC.md). Training outputs are written under `rl/weights`, `rl/checkpoints`, `rl/logs` and `rl/runs`, all ignored by Git.
+观测、动作、奖励和二进制权重契约见 [RL 训练契约](rl/SPEC.md)。训练产物会写入 `rl/weights`、`rl/checkpoints`、`rl/logs` 和 `rl/runs`，这些目录均已被 Git 忽略。
 
-Export a trained policy for the C++ contestant runtime:
+将训练完成的策略导出到 C++ 选手运行时：
 
 ```bash
 python3 rl/training/export_cpp.py \
@@ -103,17 +103,17 @@ python3 rl/training/export_cpp.py \
 bash ai/build_rl_ai.sh
 ```
 
-## Documentation
+## 文档
 
-- [Complete rules](sentry_duel_docs/rules.md)
-- [C++ contestant API](sentry_duel_docs/api.md)
-- [RL environment guide](rl/README.md)
-- [RL contract](rl/SPEC.md)
+- [完整比赛规则](sentry_duel_docs/rules.md)
+- [C++ 选手 API](sentry_duel_docs/api.md)
+- [RL 环境指南](rl/README.md)
+- [RL 训练契约](rl/SPEC.md)
 
-## Security
+## 安全说明
 
-Contestant source and shared libraries are untrusted input. The included local server is intended for development and demonstration. A public deployment should add operating-system isolation, resource limits and an authenticated reverse proxy.
+选手源码和共享库都应视为不可信输入。仓库中的本地服务仅用于开发和演示。公网部署时，应增加操作系统级隔离、资源限制和带身份认证的反向代理。
 
-## License
+## 开源许可
 
-Project source is released under the [MIT License](LICENSE). Third-party code under `server/viewer/vendor` retains its own license notices.
+项目源码使用 [MIT 许可证](LICENSE)开源。`server/viewer/vendor` 中的第三方代码保留其原有许可说明。

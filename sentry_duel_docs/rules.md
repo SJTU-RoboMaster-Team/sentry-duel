@@ -296,10 +296,9 @@ R A A . . .    ← 云台朝 E，A 为 T 形视野范围
 
 ## 参考资源
 
-- [api.md](./api.md) — C++ 接口规范(选手必读)
-- [tutorial.md](./tutorial.md) — 入门教程(选手必读)
-- [sentry_duel.h](./sentry_duel.h) — 数据结构定义
-- [utils.h](./utils.h) — 工具函数声明
+- [AI 接口规范](./api.md)（选手必读）
+- [选手数据结构](../engine/include/sentry_duel.h)
+- [工具函数声明](../engine/include/utils.h)
 
 ---
 
