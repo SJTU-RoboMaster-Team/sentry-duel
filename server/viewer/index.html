@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>哨兵大战 - 实时观战</title>
-  <link rel="stylesheet" href="static/style.css?v=20260904-rules-docs">
+  <link rel="stylesheet" href="static/style.css?v=20260904-open-source">
   <link rel="icon" href="static/favicon.ico">
   <script type="importmap">
     {
@@ -105,6 +105,18 @@
       <a class="docs-download-button rules-doc" href="downloads/rules.md" download><span class="docs-button-mark">RULES</span><span><strong>下载完整规则</strong><small>地图、回合、视野、计分与入围要求</small></span></a>
       <a class="docs-download-button api-doc" href="downloads/api.md" download><span class="docs-button-mark">API</span><span><strong>下载 AI 接口</strong><small>C++ ABI、行动返回值与上传接口</small></span></a>
     </div>
+    <section class="opensource-panel" aria-labelledby="opensource-title">
+      <div class="opensource-copy">
+        <p class="eyebrow">OPEN SOURCE</p>
+        <h3 id="opensource-title">赛事平台与 RL 训练引擎已开源</h3>
+        <p>仓库包含网页对战前端、C++17 规则引擎、示例 AI、pybind11 向量化环境，以及 PPO 和 league self-play 训练、评测与权重导出工具。</p>
+        <code>git clone git@github.com:SJTU-RoboMaster-Team/sentry-duel.git</code>
+      </div>
+      <a class="opensource-link" href="https://github.com/SJTU-RoboMaster-Team/sentry-duel" target="_blank" rel="noopener noreferrer">
+        <span class="opensource-link-mark">GH</span>
+        <span><strong>访问 GitHub 仓库</strong><small>查看构建、本地运行与 RL 训练说明</small></span>
+      </a>
+    </section>
   </section>
 
   <section id="human-view" class="app-view work-view human-view" hidden>
