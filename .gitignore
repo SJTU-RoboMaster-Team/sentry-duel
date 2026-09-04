@@ -1,0 +1,29 @@
+# 构建产物
+engine/build/
+ai/*.so
+ai/*.d
+uploads/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# 录像(可选:你想保留就删这一段)
+replays/
+
+# 临时文件
+*.swp
+*.swo
+.DS_Store
+# 服务端运行时数据(rooms/SQLite/uploads/replays)
+data/
+
+# RL 训练产物
+rl/weights/
+rl/checkpoints/
+rl/logs/
+rl/runs/
+ai/rl_weights.h
+rl/env/*.so
+rl/env/*.dylib
+rl/env/*.pyd

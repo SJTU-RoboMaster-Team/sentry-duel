@@ -1,0 +1,2166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>哨兵大战 - 实时观战</title>
+  <link rel="stylesheet" href="static/style.css?v=20260904-rules-docs">
+  <link rel="icon" href="static/favicon.ico">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/static/vendor/three/build/three.module.min.js",
+        "three/addons/": "/static/vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body class="rules-view-active">
+  <div id="arena-background" aria-hidden="true">
+    <img src="assets/background2.png" alt="">
+  </div>
+  <header>
+    <div class="masthead">
+      <div class="masthead-brand">
+        <a class="team-brand" href="https://jiaoloong.sjtu.edu.cn/" target="_blank" rel="noopener noreferrer" aria-label="交龙官网">
+          <img src="assets/jiaolong-logo.svg" alt="交龙队徽">
+          <span>交龙</span>
+        </a>
+        <span class="brand-divider" aria-hidden="true">|</span>
+        <div>
+          <p class="eyebrow">SENTRY DUEL ENGINE</p>
+          <h1>哨兵大战 <span>实时指挥台</span></h1>
+        </div>
+      </div>
+      <div class="masthead-right">
+        <span id="user-chip" class="user-chip user-chip-anon" title="请先登录交龙">
+          <span class="user-dot"></span>
+          <span id="user-chip-name">点击登录</span>
+        </span>
+        <span id="status">未连接</span>
+      </div>
+    </div>
+    <nav class="view-nav" aria-label="主导航">
+      <button class="view-tab active" data-view="rules-view">规则介绍</button>
+      <button class="view-tab" data-view="arena-view">对局指挥台</button>
+      <button class="view-tab human-tab" data-view="human-view"><span class="human-tab-mark"></span>人机模式</button>
+      <button class="view-tab" data-view="room-view">多人房间</button>
+      <button class="view-tab" data-view="code-view">AI 代码库</button>
+      <button class="view-tab" data-view="public-ai-view">已公开 AI</button>
+      <button class="view-tab" data-view="formal-view">正式比赛</button>
+      <button class="view-tab" data-view="qualifier-view">入围赛</button>
+      <button class="view-tab" data-view="docs-view">开发文档</button>
+      <a class="view-tab view-external-link" href="https://jiaoloong.sjtu.edu.cn/" target="_blank" rel="noopener noreferrer">交龙官网</a>
+    </nav>
+    <div class="controls">
+      <div class="control-group matchup-controls">
+        <label class="team-select red-select"><span class="team-swatch"></span>红方 <select id="red-ai"></select></label>
+        <span class="versus">VS</span>
+        <label class="team-select blue-select"><span class="team-swatch"></span>蓝方 <select id="blue-ai"></select></label>
+        <button id="run-match" class="primary">开始对局</button>
+      </div>
+      <div class="control-group replay-controls">
+        <label>对局 ID <input id="game-id" type="text" placeholder="输入录像 ID"></label>
+        <button id="connect">连接</button>
+        <button id="disconnect" disabled>断开</button>
+        <button id="auto-play" disabled>回放</button>
+        <label>速度 <select id="playback-speed"><option value="800">1×</option><option value="400">2×</option><option value="160">5×</option></select></label>
+        <button id="step-back" disabled aria-label="上一步">◀</button>
+        <button id="step-forward" disabled aria-label="下一步">▶</button>
+        <button id="reset">重置</button>
+      </div>
+    </div>
+    <div class="meta">
+      <span>回合 <strong id="turn">-</strong></span>
+      <span class="score-chip red-chip">红方 <strong id="red-score">0</strong></span>
+      <span class="score-chip blue-chip">蓝方 <strong id="blue-score">0</strong></span>
+      <span id="human-cooldowns" class="human-cooldowns" hidden>你的 CD · FIRE <strong id="human-fire-cd">0</strong> · SCAN <strong id="human-scan-cd">0</strong></span>
+      <span>事件 <strong id="event-idx">0</strong> / <strong id="event-total">0</strong></span>
+      <span class="match-format">标准赛 · 20 回合</span>
+    </div>
+    <div class="legend">
+      <span class="dot red"></span>红方
+      <span class="dot blue"></span>蓝方
+      <span class="dot vision-red"></span>红方视野
+      <span class="dot vision-blue"></span>蓝方视野
+      <span class="dot fire"></span>火力扇形
+      <span class="dot scan"></span>扫描特效
+    </div>
+  </header>
+
+  <section id="rules-view" class="app-view work-view rules-view active">
+    <div class="view-heading">
+      <div><p class="eyebrow">GAME RULES</p><h2>哨兵大战规则介绍</h2></div>
+      <p>在 7×7 棋盘上编写 C++ AI，通过占领得分区与击杀对手赢得 20 回合对局。</p>
+    </div>
+    <div class="rules-grid">
+      <article class="rule-card"><span>01</span><h3>回合与行动</h3><p>每回合红方先行动、蓝方后行动；每方最多消耗 3 次成功行动。失败调用不消耗额度，AI 可以提前返回结束本回合。</p></article>
+      <article class="rule-card"><span>02</span><h3>移动与转向</h3><p>MOVE 向当前朝向前进一格；TURN 可转向 N/E/S/W。同朝向转向也成功。开局或复活后仍在出生点时，首次有效转向免费。</p></article>
+      <article class="rule-card"><span>03</span><h3>开火与扫描</h3><p>FIRE 攻击前方 3×3 区域，击杀得 2 分；SCAN 返回对手实时位置和朝向。障碍会分别阻挡视野与火力通道。</p></article>
+      <article class="rule-card"><span>04</span><h3>得分与胜负</h3><p>每回合末只有一方位于中心得分区时得 1 分。20 回合后分高者胜；平分时最多进行 5 个完整加时回合。</p></article>
+      <article class="rule-card"><span>05</span><h3>复活与冷却</h3><p>被击杀后立即回到出生点并恢复初始朝向，FIRE 与 SCAN 的已有冷却保持不变。</p></article>
+      <article class="rule-card"><span>06</span><h3>入围要求</h3><p>分别在两场 100 局系列赛中战胜 Baseline 与 Hunter 即显示已入围；技术文档是独立提交材料，可在评测前后上传。</p></article>
+    </div>
+    <div class="rules-actions">
+      <a class="docs-download-button rules-doc" href="downloads/rules.md" download><span class="docs-button-mark">RULES</span><span><strong>下载完整规则</strong><small>地图、回合、视野、计分与入围要求</small></span></a>
+      <a class="docs-download-button api-doc" href="downloads/api.md" download><span class="docs-button-mark">API</span><span><strong>下载 AI 接口</strong><small>C++ ABI、行动返回值与上传接口</small></span></a>
+    </div>
+  </section>
+
+  <section id="human-view" class="app-view work-view human-view" hidden>
+    <div class="view-heading">
+      <div><p class="eyebrow">HUMAN VS AI</p><h2>人机模式</h2></div>
+      <p>选择已上传的 AI 和你的阵营，启动后在棋盘上直接操作。</p>
+    </div>
+    <div class="human-console">
+      <div class="human-settings">
+        <label class="human-field"><span>对手模型</span><select id="human-ai"></select></label>
+        <div class="human-field"><span>我的颜色</span><div class="side-picker" role="group" aria-label="我的颜色">
+          <button type="button" class="side-choice red-choice active" data-human-side="R"><span class="team-swatch"></span>红方</button>
+          <button type="button" class="side-choice blue-choice" data-human-side="B"><span class="team-swatch"></span>蓝方</button>
+        </div></div>
+        <label class="human-field"><span>回合上限</span><input id="human-max-turns" type="number" min="1" max="50" value="20"></label>
+        <button id="human-start" class="primary human-start">开始人机对战</button>
+        <button id="human-stop" class="human-stop" disabled>结束对局</button>
+      </div>
+      <div class="human-actions" aria-label="操作">
+        <div class="key-cluster" aria-label="方向操作">
+          <button type="button" class="keycap" data-human-key="w">W</button>
+          <div><button type="button" class="keycap" data-human-key="a">A</button><button type="button" class="keycap" data-human-key="s">S</button><button type="button" class="keycap" data-human-key="d">D</button></div>
+        </div>
+        <div class="action-buttons">
+          <button type="button" class="action-key scan-key" data-human-action="scan"><span>SCAN</span><kbd>Q</kbd></button>
+          <button type="button" class="action-key fire-key" data-human-action="fire"><span>FIRE</span><kbd>E</kbd></button>
+          <button type="button" class="action-key end-key" data-human-action="end"><span>结束回合</span><kbd>SPACE</kbd></button>
+        </div>
+        <div class="human-readout"><span id="human-turn-state">等待开始</span><strong id="human-game-id">未开始</strong></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="code-view" class="app-view work-view" hidden>
+    <div class="view-heading">
+      <div><p class="eyebrow">AI WORKBENCH</p><h2>编写并编译 AI</h2></div>
+      <p>提交 C++ 源码后，编译产物会加入上方的对局 AI 列表。</p>
+    </div>
+    <div class="editor-layout">
+      <div class="editor-card editor-main">
+        <div class="editor-toolbar">
+          <label>AI 名称 <input id="upload-name" type="text" placeholder="my_ai" maxlength="64"></label>
+          <span id="upload-status"></span>
+          <button id="upload-btn" class="primary">编译并提交</button>
+        </div>
+        <textarea id="upload-source" spellcheck="false" placeholder="// 在这里写你的 AI 源码..."></textarea>
+        <div class="package-upload">
+          <label>源码包 <input id="upload-pack-file" type="file" accept=".zip,.tar,.tar.gz,.tgz"></label>
+          <button id="upload-pack-btn">上传源码包并编译</button>
+          <span>zip/tar.gz ≤20MB；有 Makefile 时执行 Makefile，否则编译根目录全部 .cpp</span>
+        </div>
+      </div>
+      <aside class="editor-card template-panel">
+        <h3>起始模板</h3>
+        <p>选择一个可运行示例，再按规则接口调整策略。</p>
+        <div class="upload-tpl">
+          <button data-tpl="random">随机巡逻</button>
+          <button data-tpl="reactive">视野反应</button>
+          <button data-tpl="baseline">占点攻击</button>
+        </div>
+      </aside>
+    </div>
+
+    <section class="my-ai-panel" aria-labelledby="my-ai-title">
+      <div class="my-ai-heading">
+        <div>
+          <p class="eyebrow">YOUR BUILDS</p>
+          <h3 id="my-ai-title">我的 AI</h3>
+        </div>
+        <span id="my-ai-account" class="upload-hint">请先在右上角登录</span>
+      </div>
+      <div id="my-ai-list" class="my-ai-list"><span class="upload-hint">登录后查看</span></div>
+      <p class="my-ai-hint">
+        公开源码后,任何人都可在「已公开 AI」页下载源码包;私有 AI 仅可对战,代码不外泄。
+      </p>
+    </section>
+  </section>
+
+  <section id="public-ai-view" class="app-view work-view" hidden>
+    <div class="view-heading">
+      <div><p class="eyebrow">PUBLIC BUILDS</p><h2 id="public-ai-title">已公开 AI</h2></div>
+    </div>
+    <section class="my-ai-panel" aria-labelledby="public-ai-title">
+      <div class="my-ai-heading">
+        <div><p class="eyebrow">SOURCE ARCHIVE</p><h3>公开源码</h3></div>
+      </div>
+      <div id="public-ai-list" class="my-ai-list"><span class="upload-hint">正在加载...</span></div>
+    </section>
+  </section>
+
+  <section id="formal-view" class="app-view work-view" hidden>
+    <div class="view-heading">
+      <div><p class="eyebrow">OFFICIAL SERIES</p><h2>正式比赛</h2></div>
+      <p>双方各执红方 50 局，共 100 局；获胜局数较多者赢得系列赛。</p>
+    </div>
+    <section class="competition-panel" aria-labelledby="formal-controls-title">
+      <div class="competition-controls">
+        <h3 id="formal-controls-title">创建比赛</h3>
+        <label><span>AI A</span><select id="formal-ai-a"></select></label>
+        <span class="versus">VS</span>
+        <label><span>AI B</span><select id="formal-ai-b"></select></label>
+        <button id="formal-start" class="primary">开始 100 局</button>
+        <span id="formal-status" class="upload-hint"></span>
+      </div>
+      <div id="formal-jobs" class="competition-list"><span class="upload-hint">正在加载...</span></div>
+    </section>
+  </section>
+
+  <section id="qualifier-view" class="app-view work-view" hidden>
+    <div class="view-heading">
+      <div><p class="eyebrow">QUALIFIER</p><h2>入围赛</h2></div>
+      <p>分别发起对战 Baseline、Hunter 的两场 100 局系列赛；两场胜局数都占优即入围，技术文档单独提交。</p>
+    </div>
+    <div class="qualifier-layout">
+      <section class="competition-panel" aria-labelledby="qualifier-submit-title">
+        <div class="competition-controls">
+          <h3 id="qualifier-submit-title">提交评测</h3>
+          <label><span>我的 AI</span><select id="qualifier-ai"><option value="">请选择</option></select></label>
+          <button id="qualifier-start" class="primary">开始两场 100 局</button>
+          <span id="qualifier-status" class="upload-hint"></span>
+        </div>
+        <div class="technical-document-upload">
+          <div><p class="eyebrow">TECHNICAL REPORT</p><strong>入围技术文档</strong><small>支持 PDF、DOCX、Markdown，单文件不超过 20MB；重新上传会替换上一版本。</small></div>
+          <label>选择文档 <input id="qualifier-document-file" type="file" accept=".pdf,.docx,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown"></label>
+          <button id="qualifier-document-upload">上传技术文档</button>
+          <a id="qualifier-document-download" class="source-download" href="api/qualifiers/document/download" hidden>下载已提交文档</a>
+          <span id="qualifier-document-status" class="upload-hint">尚未上传</span>
+        </div>
+        <div id="qualifier-jobs" class="competition-list"><span class="upload-hint">正在加载...</span></div>
+      </section>
+      <section class="competition-panel qualified-panel" aria-labelledby="qualified-title">
+        <div class="competition-controls">
+          <h3 id="qualified-title">入围状态 <span id="qualified-count" class="count-badge">0 人</span></h3>
+        </div>
+        <div id="my-qualified" class="qualification-summary pending">正在查询我的状态...</div>
+      </section>
+    </div>
+  </section>
+
+  <section id="docs-view" class="app-view work-view" hidden>
+    <div class="view-heading">
+      <div><p class="eyebrow">DEVELOPER DOCS</p><h2>开发文档</h2></div>
+      <p>下载比赛规则与 AI 接口规范，完成代码后可在 AI 代码库中编译提交。</p>
+    </div>
+    <div class="docs-download-panel">
+      <a class="docs-download-button rules-doc" href="downloads/rules.md" download>
+        <span class="docs-button-mark">RULES</span>
+        <span><strong>下载规则</strong><small>比赛地图、回合、视野与得分约束</small></span>
+      </a>
+      <a class="docs-download-button api-doc" href="downloads/api.md" download>
+        <span class="docs-button-mark">API</span>
+        <span><strong>下载 API</strong><small>C++ 数据结构、行动函数与编译接口</small></span>
+      </a>
+    </div>
+    <section class="qq-group-panel" aria-labelledby="qq-group-title">
+      <div>
+        <p class="eyebrow">COMMUNITY</p>
+        <h3 id="qq-group-title">比赛 QQ 群</h3>
+        <p>群号 1106026473</p>
+      </div>
+      <img src="assets/QR.png" alt="第九届机甲大师赛校内赛 QQ 群二维码">
+    </section>
+  </section>
+
+  <section id="room-view" class="app-view work-view" hidden>
+    <div class="view-heading">
+      <div><p class="eyebrow">PRIVATE MATCH</p><h2>创建或加入房间</h2></div>
+      <p>房主固定红方，对手通过 6 位房间码加入蓝方。双方上传后由房主启动对局。</p>
+    </div>
+    <div class="room-shell">
+      <div class="room-tabs">
+          <button id="tab-create" class="active"><span class="room-mark red-mark"></span>创建房间</button>
+          <button id="tab-join"><span class="room-mark blue-mark"></span>加入房间</button>
+      </div>
+      <div class="room-body">
+
+        <!-- 创建房间面板 -->
+        <div id="create-pane" class="room-pane">
+          <p>创建一个房间,得到一个 6 位房间码。<strong>红方(你)</strong>先提交 AI,蓝方加入后提交 AI 即可开赛。</p>
+          <button id="create-room-btn">创建房间</button>
+          <div id="create-result" hidden>
+            <p>房间码: <code id="room-code-display"></code>
+               <button id="copy-code">复制</button>
+            </p>
+            <p>把房间码发给对手,或同一浏览器两个 tab 测。</p>
+            <div class="upload-row">
+              <label class="team-select red-select"><span class="team-swatch"></span>选择 slot: <select id="create-side"><option value="red">红方(我)</option></select></label>
+              <label>已有 AI: <select id="create-existing-ai"><option value="">请选择</option></select></label>
+              <button id="create-bind-ai-btn">绑定已有 AI</button>
+              <label>选手名: <input id="room-ai-name" type="text" placeholder="my_ai" maxlength="64"></label>
+              <button id="room-upload-btn">上传并绑定到房间</button>
+              <span id="room-upload-status"></span>
+            </div>
+            <textarea id="room-ai-source" spellcheck="false" placeholder="// AI 源码..."></textarea>
+            <div class="upload-tpl">
+              <button data-tpl="random">随机模板</button>
+              <button data-tpl="reactive">反应式模板</button>
+              <button data-tpl="baseline">占点模板</button>
+            </div>
+            <div class="upload-row">
+              <label>源码包: <input id="room-pack-file" type="file" accept=".zip,.tar,.tar.gz,.tgz"></label>
+              <button id="room-pack-btn">上传源码包并绑定</button>
+              <span class="upload-hint">zip/tar.gz ≤20MB;有 Makefile 用 Makefile,否则编译全部 .cpp</span>
+              <details class="pack-info">
+                <summary>ⓘ 源码包格式说明</summary>
+                <div class="pack-info-body">
+                  <ul>
+                    <li>支持 <code>.zip</code> / <code>.tar</code> / <code>.tar.gz</code> / <code>.tgz</code>;压缩包 ≤20MB,文件数 ≤64,单文件 ≤8MB,解压后总量 ≤20MB。</li>
+                    <li>包内禁止符号链接、绝对路径和 <code>../</code> 越界路径,含此类条目会被直接拒绝。</li>
+                    <li>源码可放在包根,或外层只套一层目录(自动向下定位项目根,最多两层)。</li>
+                    <li>项目根有 <code>Makefile</code> 时执行 <code>make</code>:必须把 <code>.so</code> 产出到项目根目录;Makefile 内可使用环境变量 <code>$(ENGINE_INCLUDE)</code> 和 <code>$(ENGINE_LIB_DIR)</code>。</li>
+                    <li>没有 <code>Makefile</code> 时,用标准命令编译项目根那一层的全部 <code>.cpp</code>(更深层子目录的源码不参与编译)。</li>
+                    <li>主源码优先取 <code>my_ai.cpp</code>,它决定 AI 列表中展示的源码。</li>
+                    <li>编译限时 120 秒;失败会返回编译器输出,房间状态不受影响,修正后可重新上传。</li>
+                  </ul>
+                </div>
+              </details>
+            </div>
+            <button class="start-room-match" disabled>等待蓝方上传...</button>
+            <p id="create-game-fallback" class="room-game-fallback" hidden>
+              对局 ID: <code id="create-game-id"></code>
+              <button id="create-connect-game">连接对局</button>
+            </p>
+          </div>
+        </div>
+
+        <!-- 加入房间面板 -->
+        <div id="join-pane" class="room-pane" hidden>
+          <p>输入对手给你的 6 位房间码加入,绑定为蓝方。</p>
+          <div class="upload-row">
+            <label>房间码: <input id="join-code" type="text" placeholder="ABC123" maxlength="6"></label>
+            <button id="join-room-btn">加入</button>
+            <span id="join-status"></span>
+          </div>
+          <div id="join-result" hidden>
+            <div class="upload-row">
+              <label class="team-select blue-select"><span class="team-swatch"></span>选择 slot: <select id="join-side"><option value="blue">蓝方(我)</option></select></label>
+              <label>已有 AI: <select id="join-existing-ai"><option value="">请选择</option></select></label>
+              <button id="join-bind-ai-btn">绑定已有 AI</button>
+              <label>选手名: <input id="join-ai-name" type="text" placeholder="my_ai" maxlength="64"></label>
+              <button id="join-upload-btn">上传并绑定到房间</button>
+              <span id="join-upload-status"></span>
+            </div>
+            <textarea id="join-ai-source" spellcheck="false" placeholder="// AI 源码..."></textarea>
+            <div class="upload-tpl">
+              <button data-tpl="random">随机模板</button>
+              <button data-tpl="reactive">反应式模板</button>
+              <button data-tpl="baseline">占点模板</button>
+            </div>
+            <div class="upload-row">
+              <label>源码包: <input id="join-pack-file" type="file" accept=".zip,.tar,.tar.gz,.tgz"></label>
+              <button id="join-pack-btn">上传源码包并绑定</button>
+              <span class="upload-hint">zip/tar.gz ≤20MB;有 Makefile 用 Makefile,否则编译全部 .cpp</span>
+              <details class="pack-info">
+                <summary>ⓘ 源码包格式说明</summary>
+                <div class="pack-info-body">
+                  <ul>
+                    <li>支持 <code>.zip</code> / <code>.tar</code> / <code>.tar.gz</code> / <code>.tgz</code>;压缩包 ≤20MB,文件数 ≤64,单文件 ≤8MB,解压后总量 ≤20MB。</li>
+                    <li>包内禁止符号链接、绝对路径和 <code>../</code> 越界路径,含此类条目会被直接拒绝。</li>
+                    <li>源码可放在包根,或外层只套一层目录(自动向下定位项目根,最多两层)。</li>
+                    <li>项目根有 <code>Makefile</code> 时执行 <code>make</code>:必须把 <code>.so</code> 产出到项目根目录;Makefile 内可使用环境变量 <code>$(ENGINE_INCLUDE)</code> 和 <code>$(ENGINE_LIB_DIR)</code>。</li>
+                    <li>没有 <code>Makefile</code> 时,用标准命令编译项目根那一层的全部 <code>.cpp</code>(更深层子目录的源码不参与编译)。</li>
+                    <li>主源码优先取 <code>my_ai.cpp</code>,它决定 AI 列表中展示的源码。</li>
+                    <li>编译限时 120 秒;失败会返回编译器输出,房间状态不受影响,修正后可重新上传。</li>
+                  </ul>
+                </div>
+              </details>
+            </div>
+            <button class="start-room-match" disabled>等待房主开赛...</button>
+            <p id="join-game-fallback" class="room-game-fallback" hidden>
+              对局 ID: <code id="join-game-id"></code>
+              <button id="join-connect-game">连接对局</button>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <main id="arena-view" class="app-view" hidden>
+    <div id="board-wrap">
+      <div id="board" aria-label="三维对局棋盘">
+        <span class="arena-loading" role="status">正在加载地图和车体...</span>
+      </div>
+      <section id="board-quick-view" aria-label="棋盘状态速览">
+        <div class="quick-view-heading">
+          <span>棋盘速览</span>
+          <strong id="quick-turn">T--</strong>
+        </div>
+        <div class="quick-view-score">
+          <span class="quick-red">R <strong id="quick-red-score">0</strong></span>
+          <span class="quick-blue">B <strong id="quick-blue-score">0</strong></span>
+        </div>
+        <div id="quick-grid" class="quick-grid"></div>
+      </section>
+    </div>
+    <aside id="event-log">
+      <h3>事件流</h3>
+      <ol id="events"></ol>
+    </aside>
+  </main>
+
+  <script type="module">
+    import { Arena3D } from '/static/arena3d.js?v=20260827-human-view-1';
+
+    const gameIdInput = document.getElementById('game-id');
+    const connectBtn = document.getElementById('connect');
+    const disconnectBtn = document.getElementById('disconnect');
+    const stepBackBtn = document.getElementById('step-back');
+    const stepForwardBtn = document.getElementById('step-forward');
+    const resetBtn = document.getElementById('reset');
+    const runMatchBtn = document.getElementById('run-match');
+    const redAiSelect = document.getElementById('red-ai');
+    const blueAiSelect = document.getElementById('blue-ai');
+    const humanAiSelect = document.getElementById('human-ai');
+    const autoPlayBtn = document.getElementById('auto-play');
+    const playbackSpeedSelect = document.getElementById('playback-speed');
+    const statusEl = document.getElementById('status');
+    const boardEl = document.getElementById('board');
+    const eventsEl = document.getElementById('events');
+    const quickGridEl = document.getElementById('quick-grid');
+    const quickTurnEl = document.getElementById('quick-turn');
+    const quickRedScoreEl = document.getElementById('quick-red-score');
+    const quickBlueScoreEl = document.getElementById('quick-blue-score');
+    const turnEl = document.getElementById('turn');
+    const redScoreEl = document.getElementById('red-score');
+    const blueScoreEl = document.getElementById('blue-score');
+    const eventIdxEl = document.getElementById('event-idx');
+    const eventTotalEl = document.getElementById('event-total');
+    const humanCooldownsEl = document.getElementById('human-cooldowns');
+    const humanFireCdEl = document.getElementById('human-fire-cd');
+    const humanScanCdEl = document.getElementById('human-scan-cd');
+
+    const appBase = new URL('.', window.location.href).pathname.replace(/\/$/, '');
+    const apiBase = `${appBase}/api`;
+    const arena3d = new Arena3D(boardEl, {
+      modelUrl: `${appBase}/assets/sentry.glb`,
+      mapUrl: `${appBase}/assets/RMUC2025map_rendered.glb`,
+    });
+    let es = null;
+    let allEvents = [];
+    let cursor = 0;
+    let liveMode = true;
+    let currentBoard = null;  // 从 start/action/turn_end 事件累计出的当前 Board
+    let playbackTimer = null;
+    let effectQueue = [];
+    let liveEventQueue = [];
+    let liveEventTimer = null;
+    let liveEventProcessing = false;
+    let autoReplayAfterLive = false;
+    let humanModeActive = false;
+    let humanGameRunning = false;
+    let humanSide = 'R';
+    let humanGameId = '';
+    let humanActionPending = false;
+    let humanActionsThisTurn = 0;
+    let humanOpponentRevealed = false;
+    let quickGridSize = 0;
+    let quickCells = [];
+
+    const viewTabs = [...document.querySelectorAll('.view-tab[data-view]')];
+    const appViews = [...document.querySelectorAll('.app-view')];
+    function activateView(viewId) {
+      appViews.forEach(view => {
+        const active = view.id === viewId || (viewId === 'human-view' && view.id === 'arena-view');
+        view.hidden = !active;
+        view.classList.toggle('active', active);
+      });
+      viewTabs.forEach(tab => tab.classList.toggle('active', tab.dataset.view === viewId));
+      humanModeActive = viewId === 'human-view';
+      document.body.classList.toggle('human-mode-active', humanModeActive);
+      document.body.classList.toggle('rules-view-active', viewId === 'rules-view');
+      arena3d.setHumanView(humanModeActive);
+    }
+    viewTabs.forEach(tab => tab.onclick = () => {
+      const wasHumanMode = humanModeActive;
+      activateView(tab.dataset.view);
+      if (tab.dataset.view === 'code-view') { refreshMyAis(); refreshUserChip(); }
+      if (tab.dataset.view === 'public-ai-view') refreshPublicAis();
+      if (tab.dataset.view === 'formal-view') refreshFormalCompetitions();
+      if (tab.dataset.view === 'qualifier-view') refreshQualifiers();
+      if (tab.dataset.view === 'human-view') makeBoard();
+      if (tab.dataset.view === 'human-view' || wasHumanMode) render({ immediate: true });
+    });
+
+    function setStatus(msg, cls) {
+      statusEl.textContent = msg;
+      statusEl.className = cls || '';
+    }
+
+    function makeBoard() {
+      arena3d.reset();
+      effectQueue = [];
+      updateQuickView(null);
+    }
+
+    function ensureQuickGrid(size) {
+      if (quickGridSize === size) return;
+      quickGridSize = size;
+      quickGridEl.replaceChildren();
+      quickCells = [];
+      quickGridEl.style.setProperty('--quick-grid-size', size);
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const cell = document.createElement('div');
+          cell.className = 'quick-cell';
+          cell.dataset.x = x;
+          cell.dataset.y = y;
+          quickGridEl.appendChild(cell);
+          quickCells.push(cell);
+        }
+      }
+    }
+
+    function updateQuickView(board, options = {}) {
+      if (!board) {
+        ensureQuickGrid(quickGridSize || 7);
+        quickTurnEl.textContent = 'T--';
+        quickRedScoreEl.textContent = '0';
+        quickBlueScoreEl.textContent = '0';
+        quickCells.forEach(cell => { cell.className = 'quick-cell'; cell.textContent = ''; });
+        return;
+      }
+      const size = Number(board.size) || 7;
+      ensureQuickGrid(size);
+      const obstacles = new Set((board.obstacles || []).map(([x, y]) => cellKey(x, y)));
+      const scoreZones = new Set((board.score_zones || []).map(([x, y]) => cellKey(x, y)));
+      const redVision = new Set((options.redVisionCells || []).map(([x, y]) => cellKey(x, y)));
+      const blueVision = new Set((options.blueVisionCells || []).map(([x, y]) => cellKey(x, y)));
+      const redCell = options.showRed && board.red_pos ? cellKey(...board.red_pos) : null;
+      const blueCell = options.showBlue && board.blue_pos ? cellKey(...board.blue_pos) : null;
+      quickCells.forEach((cell) => {
+        const x = Number(cell.dataset.x), y = Number(cell.dataset.y);
+        const key = cellKey(x, y);
+        const classes = ['quick-cell'];
+        if (scoreZones.has(key)) classes.push('score');
+        if (obstacles.has(key)) classes.push('obstacle');
+        if (redVision.has(key)) classes.push('vision-red');
+        if (blueVision.has(key)) classes.push('vision-blue');
+        if (key === redCell) classes.push('red');
+        if (key === blueCell) classes.push('blue');
+        cell.className = classes.join(' ');
+        cell.textContent = key === redCell ? `R${arrow(board.red_facing)}`
+          : key === blueCell ? `B${arrow(board.blue_facing)}`
+          : obstacles.has(key) ? '#' : '';
+      });
+      quickTurnEl.textContent = `T${board.turn ?? '--'}`;
+      quickRedScoreEl.textContent = board.red_score ?? 0;
+      quickBlueScoreEl.textContent = board.blue_score ?? 0;
+    }
+    updateQuickView(null);
+
+    // 朝向字符 → (dx, dy)
+    function facingDelta(f) {
+      return { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] }[f] || [0, 0];
+    }
+
+    function arrow(f) {
+      return { N: '^', E: '>', S: 'v', W: '<' }[f] || '?';
+    }
+
+    // T 字形视野偏移(以我方为基准的 4 个相对坐标)
+    function visionOffsets(f) {
+      switch (f) {
+        case 'N': return [[0,-1],[-1,-2],[0,-2],[1,-2]];
+        case 'E': return [[1,0],[2,-1],[2,0],[2,1]];
+        case 'S': return [[0,1],[-1,2],[0,2],[1,2]];
+        case 'W': return [[-1,0],[-2,-1],[-2,0],[-2,1]];
+        default:  return [];
+      }
+    }
+
+    // 3×3 火力扇形偏移
+    function fireOffsets(f) {
+      switch (f) {
+        case 'N': return [[-1,-1],[0,-1],[1,-1],[-1,-2],[0,-2],[1,-2],[-1,-3],[0,-3],[1,-3]];
+        case 'E': return [[1,-1],[1,0],[1,1],[2,-1],[2,0],[2,1],[3,-1],[3,0],[3,1]];
+        case 'S': return [[-1,1],[0,1],[1,1],[-1,2],[0,2],[1,2],[-1,3],[0,3],[1,3]];
+        case 'W': return [[-1,-1],[-1,0],[-1,1],[-2,-1],[-2,0],[-2,1],[-3,-1],[-3,0],[-3,1]];
+        default:  return [];
+      }
+    }
+
+    function inBoard(x, y, size) {
+      return x >= 0 && x < size && y >= 0 && y < size;
+    }
+
+    function cellKey(x, y) {
+      return `${x},${y}`;
+    }
+
+    function isObstacle(board, x, y) {
+      return (board.obstacles || []).some(([ox, oy]) => ox === x && oy === y);
+    }
+
+    // 与引擎 can_see() 使用同样的逐步遮挡判定。
+    function blockedByObstacle(board, from, target) {
+      let [x, y] = from;
+      const stepX = Math.sign(target[0] - x);
+      const stepY = Math.sign(target[1] - y);
+      const steps = Math.max(Math.abs(target[0] - x), Math.abs(target[1] - y));
+      for (let step = 1; step < steps; step++) {
+        x += stepX;
+        y += stepY;
+        if (isObstacle(board, x, y)) return true;
+      }
+      return false;
+    }
+
+    function visibleCells(board, pos, facing) {
+      return visionOffsets(facing)
+        .map(([dx, dy]) => [pos[0] + dx, pos[1] + dy])
+        .filter(([x, y]) => inBoard(x, y, board.size) &&
+                            !isObstacle(board, x, y) &&
+                            !blockedByObstacle(board, pos, [x, y]));
+    }
+
+    // 将逻辑棋盘同步到 Three.js；回放重建可要求直接定位。
+    function render({ immediate = false, event = null } = {}) {
+      if (!currentBoard) {
+        arena3d.clearState();
+        effectQueue = [];
+        updateQuickView(null);
+        return;
+      }
+      const b = currentBoard;
+      const effects = effectQueue.splice(0);
+
+      // 人机模式仅在己方直视或扫描到对手时显示对方车体。
+      const restricted = humanModeActive || humanGameRunning;
+      const playerSeesOpponent = humanSide === 'R' ? b.red_visible : b.blue_visible;
+      const showRed = Boolean(b.red_pos) &&
+        (!restricted || humanSide === 'R' || playerSeesOpponent || humanOpponentRevealed);
+      const showBlue = Boolean(b.blue_pos) &&
+        (!restricted || humanSide === 'B' || playerSeesOpponent || humanOpponentRevealed);
+      const redVisionCells = showRed && (!restricted || humanSide === 'R')
+        ? visibleCells(b, b.red_pos, b.red_facing) : [];
+      const blueVisionCells = showBlue && (!restricted || humanSide === 'B')
+        ? visibleCells(b, b.blue_pos, b.blue_facing) : [];
+      const hardSides = effects
+        .filter(effect => effect.killPosition)
+        .map(effect => effect.side === 'R' ? 'B' : 'R');
+
+      updateQuickView(b, { showRed, showBlue, redVisionCells, blueVisionCells });
+
+      arena3d.updateBoard(b, {
+        showRed,
+        showBlue,
+        redVisionCells,
+        blueVisionCells,
+        hardSides,
+        immediate,
+        event,
+      });
+
+      // 分数 + 回合
+      if (b.red_score !== undefined) redScoreEl.textContent = b.red_score;
+      if (b.blue_score !== undefined) blueScoreEl.textContent = b.blue_score;
+      if (b.turn !== undefined) turnEl.textContent = b.turn;
+      if (humanModeActive && humanGameId) {
+        const fireCd = humanSide === 'R' ? b.red_fire_cd : b.blue_fire_cd;
+        const scanCd = humanSide === 'R' ? b.red_scan_cd : b.blue_scan_cd;
+        humanCooldownsEl.hidden = false;
+        humanFireCdEl.textContent = Math.max(0, fireCd ?? 0);
+        humanScanCdEl.textContent = Math.max(0, scanCd ?? 0);
+        const fireButton = document.querySelector('[data-human-action="fire"]');
+        const scanButton = document.querySelector('[data-human-action="scan"]');
+        if (fireButton) fireButton.disabled = fireCd > 0;
+        if (scanButton) scanButton.disabled = scanCd > 0;
+      } else {
+        humanCooldownsEl.hidden = true;
+        document.querySelector('[data-human-action="fire"]')?.removeAttribute('disabled');
+        document.querySelector('[data-human-action="scan"]')?.removeAttribute('disabled');
+      }
+
+      eventIdxEl.textContent = cursor;
+      eventTotalEl.textContent = allEvents.length;
+      for (const effect of effects) {
+        if (!restricted || effect.side === humanSide) {
+          flashEffect(effect.action, effect.side, effect.killPosition, effect.board);
+        } else if (effect.killPosition) {
+          flashKill(effect.killPosition);
+        }
+      }
+    }
+
+    function flashKill(position) {
+      arena3d.flashKill(position);
+    }
+
+    // 显示某个动作的瞬时视觉(火力扇形 / 扫描波 / 击杀爆炸)
+    function flashEffect(action, side, killPosition = null, boardSnapshot = null) {
+      const b = boardSnapshot || currentBoard;
+      if (!b) return;
+      const pos = side === 'R' ? b.red_pos : b.blue_pos;
+      const facing = side === 'R' ? b.red_facing : b.blue_facing;
+
+      if (action === 'fire' && pos) {
+        // 文档定义的前向 3×3 火力范围，障碍及其后的格子不着色。
+        const fireCells = [];
+        for (const [dx, dy] of fireOffsets(facing)) {
+          const x = pos[0] + dx, y = pos[1] + dy;
+          if (!inBoard(x, y, b.size) || isObstacle(b, x, y) ||
+              blockedByObstacle(b, pos, [x, y])) continue;
+          fireCells.push([x, y]);
+        }
+        const direction = facingDelta(facing);
+        let target = null;
+        for (let distance = 3; distance > 0; distance--) {
+          const x = pos[0] + direction[0] * distance;
+          const y = pos[1] + direction[1] * distance;
+          if (inBoard(x, y, b.size)) { target = [x, y]; break; }
+        }
+        arena3d.flashFire(pos, target, fireCells);
+        if (killPosition) flashKill(killPosition);
+      } else if (action === 'scan' && pos) {
+        arena3d.flashScan(pos);
+      } else if (action === 'move' && pos) {
+        arena3d.flashMove(pos);
+      }
+    }
+
+    // 把事件应用到 currentBoard(action 事件带完整快照,直接覆盖)
+    function applyEvent(e) {
+      if (e.type === 'start' || e.type === 'turn_start' || e.type === 'turn_end' ||
+          e.type === 'game_over' || (e.type === 'action' && e.side !== humanSide)) {
+        humanOpponentRevealed = false;
+      } else if (e.type === 'action' && e.side === humanSide &&
+                 e.action === 'scan' && e.success) {
+        humanOpponentRevealed = true;
+      }
+      if (e.type === 'start') {
+        effectQueue = [];
+        currentBoard = {
+          size: e.size,
+          obstacles: e.obstacles || [[1,1],[5,5]],
+          score_zones: e.score_zones || [[3,2],[2,3],[3,3],[4,3],[3,4]],
+          red_pos: e.red_pos, blue_pos: e.blue_pos,
+          red_facing: e.red_facing, blue_facing: e.blue_facing,
+          red_fire_cd: e.red_fire_cd, blue_fire_cd: e.blue_fire_cd,
+          red_scan_cd: e.red_scan_cd, blue_scan_cd: e.blue_scan_cd,
+          red_score: e.red_score, blue_score: e.blue_score,
+          red_visible: e.red_visible, blue_visible: e.blue_visible,
+          turn: 0,
+        };
+      } else if (e.type === 'action') {
+        const previous = {
+          red_pos: currentBoard.red_pos,
+          blue_pos: currentBoard.blue_pos,
+          red_score: currentBoard.red_score,
+          blue_score: currentBoard.blue_score,
+        };
+        // 直接用快照覆盖(引擎已经在 emit_board_snapshot 输出当前状态)
+        if (e.red_pos) {
+          currentBoard.red_pos = e.red_pos;
+          currentBoard.red_facing = e.red_facing;
+          currentBoard.red_fire_cd = e.red_fire_cd;
+          currentBoard.red_scan_cd = e.red_scan_cd;
+          currentBoard.red_score = e.red_score;
+          currentBoard.red_visible = e.red_visible;
+        }
+        if (e.blue_pos) {
+          currentBoard.blue_pos = e.blue_pos;
+          currentBoard.blue_facing = e.blue_facing;
+          currentBoard.blue_fire_cd = e.blue_fire_cd;
+          currentBoard.blue_scan_cd = e.blue_scan_cd;
+          currentBoard.blue_score = e.blue_score;
+          currentBoard.blue_visible = e.blue_visible;
+        }
+        currentBoard.turn = e.turn;
+        if (e.success) {
+          const shooterScore = e.side === 'R' ? e.red_score : e.blue_score;
+          const previousScore = e.side === 'R' ? previous.red_score : previous.blue_score;
+          const killed = e.action === 'fire' && shooterScore === previousScore + 2;
+          effectQueue.push({
+            action: e.action,
+            side: e.side,
+            board: JSON.parse(JSON.stringify(currentBoard)),
+            killPosition: killed
+              ? (e.side === 'R' ? previous.blue_pos : previous.red_pos)
+              : null,
+          });
+        }
+      } else if (e.type === 'turn_end') {
+        currentBoard.red_pos = e.red_pos;
+        currentBoard.blue_pos = e.blue_pos;
+        currentBoard.red_score = e.red_score;
+        currentBoard.blue_score = e.blue_score;
+        currentBoard.red_visible = e.red_visible;
+        currentBoard.blue_visible = e.blue_visible;
+        if (e.red_fire_cd !== undefined) currentBoard.red_fire_cd = e.red_fire_cd;
+        if (e.blue_fire_cd !== undefined) currentBoard.blue_fire_cd = e.blue_fire_cd;
+        if (e.red_scan_cd !== undefined) currentBoard.red_scan_cd = e.red_scan_cd;
+        if (e.blue_scan_cd !== undefined) currentBoard.blue_scan_cd = e.blue_scan_cd;
+        currentBoard.turn = e.turn + 1;
+      }
+    }
+
+    function eventLabel(e) {
+      if (e.type === 'start') return `▶ 开始 - 红 ${shortPath(e.red)} vs 蓝 ${shortPath(e.blue)}`;
+      if (e.type === 'turn_start') return `回合 ${e.turn} 开始`;
+      if (e.type === 'action') {
+        const arg = e.arg ? `(${e.arg})` : '';
+        const side = e.side === 'R' ? '红' : '蓝';
+        const free = e.success && e.consumed === false ? ' · 免费' : '';
+        return `${side} ${e.action}${arg} ${e.success ? '✓' : '✗'}${free}`;
+      }
+      if (e.type === 'turn_end') {
+        if (humanModeActive && humanGameId) return `回合 ${e.turn} 结束 | ${e.red_score}-${e.blue_score}`;
+        return `回合 ${e.turn} 结束 | 红 ${e.red_pos} 蓝 ${e.blue_pos} | ${e.red_score}-${e.blue_score}`;
+      }
+      if (e.type === 'game_over') return `■ 结束 胜方=${e.winner} (${e.reason}) | ${e.red_score}-${e.blue_score}`;
+      return '';
+    }
+
+    function shortPath(p) {
+      return p ? p.split('/').pop() : '?';
+    }
+
+    function appendEventToLog(e) {
+      const txt = eventLabel(e);
+      if (!txt) return;
+      const li = document.createElement('li');
+      li.className = 'event-' + e.type;
+      li.textContent = txt;
+      eventsEl.appendChild(li);
+      eventsEl.scrollTop = eventsEl.scrollHeight;
+      return li;
+    }
+
+    function renderAtCursor() {
+      eventsEl.innerHTML = '';
+      currentBoard = null;
+      // 累积应用 0..cursor 事件
+      for (let i = 0; i < cursor; i++) {
+        applyEvent(allEvents[i]);
+        const li = appendEventToLog(allEvents[i]);
+        if (li && i === cursor - 1) li.classList.add('current');
+      }
+      render({ immediate: true });
+    }
+
+    function stepForward() {
+      if (cursor >= allEvents.length) return;
+      const event = allEvents[cursor];
+      applyEvent(event);
+      const li = appendEventToLog(event);
+      cursor++;
+      // 移除旧的 current 标记
+      eventsEl.querySelectorAll('li.current').forEach(x => x.classList.remove('current'));
+      if (li) {
+        li.classList.add('current');
+        li.scrollIntoView({ block: 'nearest' });
+      }
+      render({ event });
+      stepBackBtn.disabled = false;
+      if (cursor >= allEvents.length) stepForwardBtn.disabled = true;
+    }
+
+    function stopAutoPlay() {
+      if (playbackTimer) clearInterval(playbackTimer);
+      playbackTimer = null;
+      autoPlayBtn.textContent = '自动回放';
+    }
+
+    function toggleAutoPlay() {
+      if (playbackTimer) {
+        stopAutoPlay();
+        return;
+      }
+      if (liveMode || cursor >= allEvents.length) return;
+      autoPlayBtn.textContent = '暂停回放';
+      playbackTimer = setInterval(() => {
+        stepForward();
+        if (cursor >= allEvents.length) stopAutoPlay();
+      }, Number(playbackSpeedSelect.value));
+    }
+
+    function startReplayFromBeginning() {
+      if (!allEvents.length) return;
+      stopAutoPlay();
+      liveMode = false;
+      cursor = 0;
+      renderAtCursor();
+      stepBackBtn.disabled = true;
+      stepForwardBtn.disabled = false;
+      autoPlayBtn.disabled = false;
+      toggleAutoPlay();
+    }
+
+    function stepBack() {
+      if (cursor <= 0) return;
+      cursor--;
+      renderAtCursor();
+      stepForwardBtn.disabled = false;
+      if (cursor === 0) stepBackBtn.disabled = true;
+    }
+
+    function reset() {
+      stopAutoPlay();
+      if (liveEventTimer) clearTimeout(liveEventTimer);
+      liveEventTimer = null;
+      liveEventQueue = [];
+      liveEventProcessing = false;
+      cursor = 0;
+      eventsEl.innerHTML = '';
+      currentBoard = null;
+      render({ immediate: true });
+      stepBackBtn.disabled = true;
+      stepForwardBtn.disabled = allEvents.length === 0;
+      autoPlayBtn.disabled = allEvents.length === 0 || liveMode;
+    }
+
+    function finishLiveGame(e) {
+      const finishedHumanGame = humanGameRunning;
+      humanGameRunning = false;
+      if (es) { es.close(); es = null; }
+      connectBtn.disabled = false;
+      disconnectBtn.disabled = true;
+      setStatus(`对局结束，${autoReplayAfterLive ? '即将自动回放' : '可回放'}`, 'ok');
+      if (finishedHumanGame) {
+        humanActionPending = false;
+        humanStartBtn.disabled = false;
+        humanSideButtons.forEach(button => { button.disabled = false; });
+        document.getElementById('human-stop').disabled = true;
+        document.getElementById('human-turn-state').textContent = `对局结束 · ${e.winner === 'D' ? '平局' : e.winner === humanSide ? '你获胜' : 'AI 获胜'}`;
+      }
+      if (autoReplayAfterLive) setTimeout(startReplayFromBeginning, 700);
+    }
+
+    function processLiveEvent(e) {
+      const previousScore = currentBoard
+        ? (e.side === 'R' ? currentBoard.red_score : currentBoard.blue_score)
+        : null;
+      const hit = e.type === 'action' && e.action === 'fire' && e.success &&
+        previousScore !== null && (e.side === 'R' ? e.red_score : e.blue_score) === previousScore + 2;
+
+      applyEvent(e);
+      if (humanModeActive && humanGameId && e.type === 'turn_start') {
+        humanActionsThisTurn = 0;
+        humanActionPending = false;
+      }
+      if (humanModeActive && e.type === 'action' && e.side === humanSide) {
+        humanActionPending = false;
+        if (e.success && e.consumed) humanActionsThisTurn += 1;
+        humanTurnState.textContent = e.success
+          ? (humanActionsThisTurn >= 3 ? '本回合动作完成 · 等待 AI' : '动作已结算 · 等待下一步')
+          : '动作未生效 · 可继续操作';
+      }
+      const li = appendEventToLog(e);
+      cursor += 1;
+      if (li) {
+        eventsEl.querySelectorAll('li.current').forEach(x => x.classList.remove('current'));
+        li.classList.add('current');
+        li.scrollIntoView({ block: 'nearest' });
+      }
+      render({ event: e });
+      stepBackBtn.disabled = false;
+      stepForwardBtn.disabled = true;
+      autoPlayBtn.disabled = true;
+      if (e.type === 'game_over') finishLiveGame(e);
+
+      if (hit) return 850;
+      if (e.type === 'action' && e.success && e.side === humanSide && e.action === 'scan') return 900;
+      if (e.type === 'action' && e.success && e.side === humanSide && e.action === 'fire') return 750;
+      if (e.type === 'action' && e.success) return 500;
+      return 20;
+    }
+
+    function pumpLiveEvents() {
+      if (!liveMode || liveEventProcessing || !liveEventQueue.length) return;
+      liveEventProcessing = true;
+      const delay = processLiveEvent(liveEventQueue.shift());
+      liveEventTimer = setTimeout(() => {
+        liveEventTimer = null;
+        liveEventProcessing = false;
+        pumpLiveEvents();
+      }, delay);
+    }
+
+    function connect() {
+      const gid = gameIdInput.value.trim();
+      if (!gid) {
+        setStatus('请输入对局 ID', 'err');
+        return;
+      }
+      if (es) es.close();
+      makeBoard();
+      reset();
+      liveMode = true;
+      setStatus('连接中...', 'pending');
+      const streamSince = allEvents.length;
+      es = new EventSource(`${apiBase}/games/${encodeURIComponent(gid)}/stream?since=${streamSince}`);
+      es.onmessage = (ev) => {
+        const eventIndex = Number(ev.lastEventId);
+        if (ev.lastEventId !== '' && Number.isInteger(eventIndex) && eventIndex < allEvents.length) return;
+        const e = JSON.parse(ev.data);
+        allEvents.push(e);
+        if (liveMode) {
+          liveEventQueue.push(e);
+          pumpLiveEvents();
+        }
+      };
+      es.onerror = () => {
+        if (es) setStatus('连接断开 (重连中)', 'err');
+      };
+      es.onopen = () => setStatus(`已连接 ${gid} (实时)`, 'ok');
+      connectBtn.disabled = true;
+      disconnectBtn.disabled = false;
+    }
+
+    function disconnect() {
+      if (es) { es.close(); es = null; }
+      if (liveEventTimer) clearTimeout(liveEventTimer);
+      liveEventTimer = null;
+      liveEventQueue = [];
+      liveEventProcessing = false;
+      setStatus('已断开', '');
+      connectBtn.disabled = false;
+      disconnectBtn.disabled = true;
+      stepForwardBtn.disabled = cursor >= allEvents.length;
+      autoPlayBtn.disabled = allEvents.length === 0;
+    }
+
+    connectBtn.onclick = connect;
+    disconnectBtn.onclick = disconnect;
+    stepBackBtn.onclick = stepBack;
+    stepForwardBtn.onclick = stepForward;
+    resetBtn.onclick = reset;
+    autoPlayBtn.onclick = toggleAutoPlay;
+
+    // 单步回放:先拉取完整 state
+    async function loadReplay() {
+      const gid = gameIdInput.value.trim();
+      if (!gid) return;
+      try {
+        const resp = await fetch(`${apiBase}/games/${encodeURIComponent(gid)}/state`);
+        if (!resp.ok) {
+          setStatus('录像不存在', 'err');
+          return;
+        }
+        allEvents = await resp.json();
+        cursor = 0;
+        makeBoard();
+        eventsEl.innerHTML = '';
+        currentBoard = null;
+        render({ immediate: true });
+        stepBackBtn.disabled = true;
+        stepForwardBtn.disabled = allEvents.length === 0;
+        liveMode = false;
+        autoPlayBtn.disabled = allEvents.length === 0;
+        setStatus(`已加载 ${gid} (${allEvents.length} 事件,点下一步)`, 'ok');
+      } catch (err) {
+        setStatus(`加载失败: ${err}`, 'err');
+      }
+    }
+
+    async function loadAis() {
+      try {
+        await refreshAiList();
+      } catch (err) {
+        setStatus(`AI 列表加载失败: ${err}`, 'err');
+        runMatchBtn.disabled = true;
+      }
+    }
+
+    function populateRoomAiSelects(ais) {
+      for (const id of ['create-existing-ai', 'join-existing-ai']) {
+        const select = document.getElementById(id);
+        if (!select) continue;
+        const previous = select.value;
+        select.innerHTML = '<option value="">请选择</option>';
+        for (const ai of ais) {
+          const option = document.createElement('option');
+          option.value = ai.name;
+          option.textContent = ai.display;
+          select.appendChild(option);
+        }
+        if (ais.some(ai => ai.name === previous)) select.value = previous;
+      }
+    }
+
+    async function runMatch() {
+      if (!redAiSelect.value || !blueAiSelect.value) {
+        setStatus('请选择红蓝双方 AI', 'err');
+        return;
+      }
+      stopAutoPlay();
+      autoReplayAfterLive = true;
+      runMatchBtn.disabled = true;
+      setStatus('正在启动对局...', 'pending');
+      try {
+        const params = new URLSearchParams({
+          red: redAiSelect.value,
+          blue: blueAiSelect.value,
+        });
+        const resp = await fetch(`${apiBase}/run?${params}`, { method: 'POST' });
+        const result = await resp.json();
+        if (!resp.ok) throw new Error(result.detail || '启动失败');
+        gameIdInput.value = result.game_id;
+        allEvents = [];
+        cursor = 0;
+        connect();
+      } catch (err) {
+        setStatus(`启动失败: ${err}`, 'err');
+      } finally {
+        runMatchBtn.disabled = false;
+      }
+    }
+
+    runMatchBtn.onclick = runMatch;
+
+    const pathMatch = location.pathname.match(/\/viewer\/([^/?]+)/);
+    if (pathMatch) gameIdInput.value = pathMatch[1];
+    loadAis();
+    if (gameIdInput.value) {
+      autoReplayAfterLive = false;
+      loadReplay();
+    }
+
+    gameIdInput.addEventListener('keypress', e => {
+      if (e.key === 'Enter') connect();
+    });
+
+    // ===== 人机模式 =====
+    const humanStartBtn = document.getElementById('human-start');
+    const humanStopBtn = document.getElementById('human-stop');
+    const humanTurnState = document.getElementById('human-turn-state');
+    const humanGameIdEl = document.getElementById('human-game-id');
+    const humanSideButtons = [...document.querySelectorAll('[data-human-side]')];
+    const humanActionButtons = [...document.querySelectorAll('[data-human-action]')];
+    const humanKeyButtons = [...document.querySelectorAll('[data-human-key]')];
+
+    humanSideButtons.forEach(button => button.onclick = () => {
+      humanSide = button.dataset.humanSide;
+      humanSideButtons.forEach(item => item.classList.toggle('active', item === button));
+      render({ immediate: true });
+    });
+
+    function humanDirectionAction(key) {
+      // 人机模式使用固定对齐相机，W/A/S/D 分别对应画面上/左/下/右。
+      const targetWorldFacing = { w: 'N', a: 'W', s: 'S', d: 'E' }[key];
+      if (!targetWorldFacing) return;
+      const facingKey = humanSide === 'R' ? 'red_facing' : 'blue_facing';
+      const currentWorldFacing = currentBoard?.[facingKey];
+      if (currentWorldFacing === targetWorldFacing) {
+        sendHumanAction('move');
+        return;
+      }
+      // 蓝方在引擎中使用 180° 镜像视角，turn 参数要先换回本地方向。
+      const localFacing = humanSide === 'B'
+        ? ({ N: 'S', E: 'W', S: 'N', W: 'E' }[targetWorldFacing] || targetWorldFacing)
+        : targetWorldFacing;
+      sendHumanAction('turn', localFacing);
+    }
+
+    async function sendHumanAction(action, arg = '') {
+      if (!humanGameId || humanActionPending || !humanModeActive || humanActionsThisTurn >= 3) return;
+      humanActionPending = true;
+      humanTurnState.textContent = '指令发送中';
+      try {
+        const resp = await fetch(`${apiBase}/human/${encodeURIComponent(humanGameId)}/action`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, arg }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || '指令发送失败');
+      } catch (err) {
+        humanActionPending = false;
+        humanTurnState.textContent = err.message;
+        setStatus(err.message, 'err');
+      }
+    }
+
+    humanActionButtons.forEach(button => button.onclick = () => sendHumanAction(button.dataset.humanAction));
+    humanKeyButtons.forEach(button => button.onclick = () => {
+      humanDirectionAction(button.dataset.humanKey);
+    });
+    document.addEventListener('keydown', event => {
+      if (!humanModeActive || event.repeat || event.target.matches('input, select, textarea, button')) return;
+      const key = event.key.toLowerCase();
+      const button = document.querySelector(`[data-human-key="${key}"]`);
+      if (button) { event.preventDefault(); button.click(); return; }
+      if (key === 'q') { event.preventDefault(); document.querySelector('[data-human-action="scan"]').click(); }
+      if (key === 'e') { event.preventDefault(); document.querySelector('[data-human-action="fire"]').click(); }
+      if (key === ' ') { event.preventDefault(); document.querySelector('[data-human-action="end"]').click(); }
+    });
+
+    humanStartBtn.onclick = async () => {
+      if (!humanAiSelect.value) { setStatus('请先上传或选择 AI 模型', 'err'); return; }
+      const maxTurns = Math.max(1, Math.min(50, Number(document.getElementById('human-max-turns').value) || 20));
+      humanStartBtn.disabled = true;
+      humanStopBtn.disabled = false;
+      humanSideButtons.forEach(button => { button.disabled = true; });
+      humanActionPending = false;
+      humanTurnState.textContent = '正在创建对局';
+      setStatus('正在启动人机对战...', 'pending');
+      try {
+        const resp = await fetch(`${apiBase}/human/start?ai=${encodeURIComponent(humanAiSelect.value)}&side=${humanSide}&max_turns=${maxTurns}`, { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || '启动失败');
+        humanGameId = data.game_id;
+        humanGameRunning = true;
+        humanGameIdEl.textContent = humanGameId;
+        gameIdInput.value = humanGameId;
+        allEvents = []; cursor = 0; autoReplayAfterLive = false; humanActionsThisTurn = 0;
+        activateView('human-view');
+        connect();
+        humanTurnState.textContent = `你是${humanSide === 'R' ? '红方' : '蓝方'} · 等待回合`;
+      } catch (err) {
+        humanGameRunning = false;
+        humanStartBtn.disabled = false;
+        humanStopBtn.disabled = true;
+        humanSideButtons.forEach(button => { button.disabled = false; });
+        humanTurnState.textContent = err.message;
+        setStatus(err.message, 'err');
+      }
+    };
+    humanStopBtn.onclick = () => sendHumanAction('quit');
+
+    // ===== 上传 AI =====
+    const uploadName = document.getElementById('upload-name');
+    const uploadSource = document.getElementById('upload-source');
+    const uploadBtn = document.getElementById('upload-btn');
+    const uploadStatus = document.getElementById('upload-status');
+    const tplBtns = document.querySelectorAll('#code-view .upload-tpl button');
+
+    const TEMPLATES = {
+      random: `// 随机 AI - 随机转向 + 移动
+#include "sentry_duel.h"
+extern "C" void act(const Board& board, char my_color) {
+    (void)board; (void)my_color;
+    static const char dirs[] = {'N','E','S','W'};
+    static unsigned s = 12345;
+    s = s * 1103515245 + 12345;
+    turn(dirs[(s >> 16) & 3]);
+    move();
+}
+`,
+      reactive: `// 反应式 AI - 看到就打
+#include "sentry_duel.h"
+#include "utils.h"
+extern "C" void act(const Board& board, char my_color) {
+    const Sentry& me  = (my_color == 'R') ? board.red : board.blue;
+    const Sentry& opp = (my_color == 'R') ? board.blue : board.red;
+    if (opp.visible && me.fire_cd == 0) fire();
+    else if (!opp.visible && me.scan_cd == 0) scan();
+    move();
+}
+`,
+      baseline: `// 占点 + 攻击 AI
+#include "sentry_duel.h"
+#include "utils.h"
+extern "C" void act(const Board& board, char my_color) {
+    const Sentry& me  = (my_color == 'R') ? board.red : board.blue;
+    const Sentry& opp = (my_color == 'R') ? board.blue : board.red;
+    if (in_score_zone(me.last_known_pos, board.score_zones)) {
+        turn('E');
+        if (opp.visible && me.fire_cd == 0) fire();
+        else if (me.scan_cd == 0) scan();
+    } else {
+        move();
+        if (opp.visible && me.fire_cd == 0) fire();
+        else if (me.scan_cd == 0) scan();
+        else turn(best_turn_to_face(me.last_known_pos, opp.last_known_pos));
+    }
+}
+`,
+    };
+
+    tplBtns.forEach(b => b.onclick = () => {
+      uploadSource.value = TEMPLATES[b.dataset.tpl] || '';
+    });
+    uploadBtn.onclick = async () => {
+      const name = uploadName.value.trim();
+      const src = uploadSource.value;
+      if (!name) { uploadStatus.textContent = '请输入选手名'; uploadStatus.className = 'err'; return; }
+      if (!src.trim()) { uploadStatus.textContent = '请输入源码'; uploadStatus.className = 'err'; return; }
+      uploadBtn.disabled = true;
+      uploadStatus.textContent = '编译中...';
+      uploadStatus.className = 'pending';
+      try {
+        const resp = await fetch(`${apiBase}/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ name, source: src }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || '编译失败');
+        uploadStatus.textContent = `✓ 已编译: ${data.name}`;
+        uploadStatus.className = 'ok';
+        await refreshAiList();
+        await refreshMyAis();
+        redAiSelect.value = data.ai_id;
+        blueAiSelect.value = Array.from(blueAiSelect.options)
+          .some(option => option.value === 'ai/baseline_ai.so')
+          ? 'ai/baseline_ai.so'
+          : blueAiSelect.value;
+      } catch (err) {
+        uploadStatus.textContent = '✗ ' + err.message;
+        uploadStatus.className = 'err';
+      }
+      uploadBtn.disabled = false;
+    };
+
+    const uploadPackFile = document.getElementById('upload-pack-file');
+    const uploadPackBtn = document.getElementById('upload-pack-btn');
+    uploadPackBtn.onclick = async () => {
+      const name = uploadName.value.trim();
+      const file = uploadPackFile.files[0];
+      if (!name) { uploadStatus.textContent = '请输入 AI 名称'; uploadStatus.className = 'err'; return; }
+      if (!file) { uploadStatus.textContent = '请选择源码包'; uploadStatus.className = 'err'; return; }
+      uploadPackBtn.disabled = true;
+      uploadStatus.textContent = '源码包编译中...';
+      uploadStatus.className = 'pending';
+      try {
+        const body = new FormData();
+        body.append('name', name);
+        body.append('file', file);
+        const resp = await fetch(`${apiBase}/upload_pack`, { method: 'POST', body });
+        const raw = await resp.text();
+        let data;
+        try { data = raw ? JSON.parse(raw) : {}; }
+        catch (_) { throw new Error(`服务器返回 ${resp.status}: ${raw.slice(0, 240) || '空响应'}`); }
+        if (!resp.ok) throw new Error(data.detail || '编译失败');
+        uploadStatus.textContent = `✓ 已编译: ${data.name}`;
+        uploadStatus.className = 'ok';
+        await refreshAiList();
+        await refreshMyAis();
+        redAiSelect.value = data.ai_id;
+      } catch (err) {
+        uploadStatus.textContent = '✗ ' + err.message;
+        uploadStatus.className = 'err';
+      } finally {
+        uploadPackBtn.disabled = false;
+      }
+    };
+
+    // ===== AI 列表刷新 =====
+    async function refreshAiList() {
+      try {
+        const resp = await fetch(`${apiBase}/ais`);
+        const data = await resp.json();
+        populateRoomAiSelects(data.ais || []);
+        populateFormalAiSelects(data.ais || []);
+        const prevRed = redAiSelect.value;
+        const prevBlue = blueAiSelect.value;
+        const prevHuman = humanAiSelect.value;
+        redAiSelect.innerHTML = '';
+        blueAiSelect.innerHTML = '';
+        humanAiSelect.innerHTML = '';
+        for (const ai of data.ais) {
+          const o1 = document.createElement('option');
+          o1.value = ai.name; o1.textContent = ai.display;
+          redAiSelect.appendChild(o1);
+          const o2 = o1.cloneNode(true);
+          blueAiSelect.appendChild(o2);
+          const o3 = o1.cloneNode(true);
+          humanAiSelect.appendChild(o3);
+        }
+        const hunter = data.ais.find(a => a.name === 'ai/hunter_ai.so')?.name;
+        const baseline = data.ais.find(a => a.name === 'ai/baseline_ai.so')?.name;
+        const uploaded = data.ais.find(a => a.kind === 'uploaded')?.name;
+        redAiSelect.value = data.ais.some(a => a.name === prevRed) ? prevRed : hunter || data.ais[0]?.name || '';
+        blueAiSelect.value = data.ais.some(a => a.name === prevBlue) ? prevBlue : baseline || data.ais[0]?.name || '';
+        humanAiSelect.value = data.ais.some(a => a.name === prevHuman) ? prevHuman : uploaded || data.ais[0]?.name || '';
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    setInterval(refreshAiList, 5000);  // 5s 拉一次,捕获其他窗口上传
+
+    function populateFormalAiSelects(ais) {
+      const a = document.getElementById('formal-ai-a');
+      const b = document.getElementById('formal-ai-b');
+      const previousA = a.value;
+      const previousB = b.value;
+      for (const select of [a, b]) {
+        select.replaceChildren();
+        for (const ai of ais) {
+          const option = document.createElement('option');
+          option.value = ai.name;
+          option.textContent = ai.display;
+          select.appendChild(option);
+        }
+      }
+      const hunter = ais.find(ai => ai.name === 'ai/hunter_ai.so')?.name;
+      const baseline = ais.find(ai => ai.name === 'ai/baseline_ai.so')?.name;
+      a.value = ais.some(ai => ai.name === previousA) ? previousA : hunter || ais[0]?.name || '';
+      b.value = ais.some(ai => ai.name === previousB) ? previousB : baseline || ais[1]?.name || ais[0]?.name || '';
+    }
+
+    function jobStatusText(job) {
+      if (job.status === 'pending') return '等待启动';
+      if (job.status === 'running') return `进行中 ${job.completed_games}/${job.total_games}`;
+      if (job.status === 'failed') return `失败: ${job.error || '未知错误'}`;
+      if (job.winner === 'draw') return '平局';
+      return job.winner === 'ai_a' ? `${job.ai_a_name} 获胜` : `${job.ai_b_name} 获胜`;
+    }
+
+    const competitionPlayback = new Map();
+    const competitionNodes = new Map();
+
+    function renderCompetitionPlayback(jobId, changedSide = '') {
+      const state = competitionPlayback.get(jobId);
+      const nodes = competitionNodes.get(jobId);
+      if (!state || !nodes) return;
+      nodes.a.textContent = state.a;
+      nodes.b.textContent = state.b;
+      nodes.progress.value = state.cursor;
+      nodes.stats.textContent = `平局 ${state.draws} · 已完成 ${state.cursor}/${state.total} 局`;
+      if (changedSide && nodes[changedSide]) {
+        const number = nodes[changedSide];
+        number.classList.remove('score-step');
+        requestAnimationFrame(() => number.classList.add('score-step'));
+      }
+      if (state.cursor < state.outcomes.length) {
+        nodes.status.textContent = `进行中 ${state.cursor}/${state.total}`;
+        nodes.status.className = 'pending';
+      } else if (state.done) {
+        nodes.status.textContent = state.resultText;
+        nodes.status.className = 'ok';
+      }
+    }
+
+    function startCompetitionPlayback(jobId) {
+      const state = competitionPlayback.get(jobId);
+      if (!state || state.timer || state.cursor >= state.outcomes.length) return;
+      state.timer = setInterval(() => {
+        if (state.cursor >= state.outcomes.length) {
+          clearInterval(state.timer);
+          state.timer = null;
+          renderCompetitionPlayback(jobId);
+          return;
+        }
+        const outcome = state.outcomes[state.cursor++];
+        if (outcome === 'a') state.a += 1;
+        else if (outcome === 'b') state.b += 1;
+        else state.draws += 1;
+        renderCompetitionPlayback(jobId, outcome === 'draw' ? '' : outcome);
+      }, 120);
+    }
+
+    function syncCompetitionPlayback(job) {
+      const outcomes = Array.isArray(job.details?.outcomes)
+        ? job.details.outcomes.filter(value => ['a', 'b', 'draw'].includes(value))
+        : [];
+      let state = competitionPlayback.get(job.id);
+      if (!state) {
+        const legacyResult = job.status === 'done' && outcomes.length === 0;
+        state = {
+          outcomes: [], cursor: legacyResult ? job.completed_games : 0,
+          a: legacyResult ? job.ai_a_wins : 0,
+          b: legacyResult ? job.ai_b_wins : 0,
+          draws: legacyResult ? job.draws : 0,
+          total: job.total_games, done: job.status === 'done',
+          resultText: jobStatusText(job), timer: null,
+        };
+        competitionPlayback.set(job.id, state);
+      }
+      state.outcomes = outcomes;
+      state.total = job.total_games;
+      state.done = job.status === 'done';
+      state.resultText = jobStatusText(job);
+      return state;
+    }
+
+    function scoreNumber(side, value) {
+      const number = document.createElement('strong');
+      number.className = `rolling-number score-${side}`;
+      number.textContent = value;
+      return number;
+    }
+
+    function makeJobRow(job) {
+      const playback = syncCompetitionPlayback(job);
+      const row = document.createElement('article');
+      row.className = `competition-row status-${job.status}`;
+      const main = document.createElement('div');
+      main.className = 'competition-row-main';
+      const heading = document.createElement('div');
+      heading.className = 'competition-row-heading';
+      const title = document.createElement('strong');
+      title.textContent = `${job.ai_a_name} vs ${job.ai_b_name}`;
+      const state = document.createElement('span');
+      state.className = job.status === 'failed' ? 'err' : (job.status === 'done' ? 'ok' : 'pending');
+      state.textContent = playback.cursor < playback.outcomes.length
+        ? `进行中 ${playback.cursor}/${playback.total}` : jobStatusText(job);
+      heading.append(title, state);
+      const progress = document.createElement('progress');
+      progress.max = job.total_games;
+      progress.value = playback.cursor;
+      const stats = document.createElement('small');
+      stats.textContent = `平局 ${playback.draws} · 已完成 ${playback.cursor}/${job.total_games} 局`;
+      main.append(heading, progress, stats);
+
+      const scoreboard = document.createElement('div');
+      scoreboard.className = 'live-scoreboard';
+      const a = document.createElement('span');
+      a.className = 'score-team score-team-a';
+      const aName = document.createElement('small');
+      aName.textContent = job.ai_a_name;
+      const aScore = scoreNumber('a', playback.a);
+      a.append(aName, aScore);
+      const separator = document.createElement('span');
+      separator.className = 'score-separator';
+      separator.textContent = ':';
+      const b = document.createElement('span');
+      b.className = 'score-team score-team-b';
+      const bName = document.createElement('small');
+      bName.textContent = job.ai_b_name;
+      const bScore = scoreNumber('b', playback.b);
+      b.append(bName, bScore);
+      scoreboard.append(a, separator, b);
+      row.append(main, scoreboard);
+      competitionNodes.set(job.id, {
+        a: aScore, b: bScore, progress, stats, status: state,
+      });
+      startCompetitionPlayback(job.id);
+      return row;
+    }
+
+    let formalHasActiveJobs = false;
+    async function refreshFormalCompetitions() {
+      const list = document.getElementById('formal-jobs');
+      try {
+        const response = await fetch(`${apiBase}/competitions/formal`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '无法读取正式比赛');
+        list.replaceChildren();
+        if (!data.jobs.length) list.innerHTML = '<span class="upload-hint">暂无正式比赛</span>';
+        data.jobs.forEach(job => list.appendChild(makeJobRow(job)));
+        formalHasActiveJobs = data.jobs.some(job => ['pending', 'running'].includes(job.status));
+      } catch (error) {
+        list.innerHTML = `<span class="err"></span>`;
+        list.firstElementChild.textContent = error.message;
+      }
+    }
+
+    document.getElementById('formal-start').onclick = async () => {
+      const button = document.getElementById('formal-start');
+      const status = document.getElementById('formal-status');
+      const aiA = document.getElementById('formal-ai-a').value;
+      const aiB = document.getElementById('formal-ai-b').value;
+      button.disabled = true;
+      status.textContent = '正在创建...';
+      status.className = 'pending';
+      try {
+        const response = await fetch(`${apiBase}/competitions/formal`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ai_a: aiA, ai_b: aiB }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '创建失败');
+        status.textContent = `已创建 ${data.id}`;
+        status.className = 'ok';
+        formalHasActiveJobs = true;
+        await refreshFormalCompetitions();
+      } catch (error) {
+        status.textContent = error.message;
+        status.className = 'err';
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    let qualifierHasActiveJobs = false;
+    function renderQualifierDocument(documentInfo) {
+      const status = document.getElementById('qualifier-document-status');
+      const download = document.getElementById('qualifier-document-download');
+      if (!documentInfo) {
+        status.textContent = '技术文档待提交（不影响开始评测或显示入围结果）';
+        status.className = 'upload-hint pending';
+        download.hidden = true;
+        return;
+      }
+      const sizeMb = (documentInfo.size / 1024 / 1024).toFixed(2);
+      status.textContent = `已提交：${documentInfo.name} · ${sizeMb} MB`;
+      status.className = 'upload-hint ok';
+      download.hidden = false;
+    }
+
+    async function refreshQualifiers(refreshMine = true) {
+      const select = document.getElementById('qualifier-ai');
+      const jobs = document.getElementById('qualifier-jobs');
+      const previous = select.value;
+      try {
+        const mineRequest = refreshMine ? fetch(`${apiBase}/my-ais`) : null;
+        const qualifierResponse = await fetch(`${apiBase}/qualifiers`);
+        const mineResponse = mineRequest ? await mineRequest : null;
+        const mine = mineResponse ? await mineResponse.json() : null;
+        const data = await qualifierResponse.json();
+        if (mineResponse && !mineResponse.ok) throw new Error(mine.detail || '无法读取我的 AI');
+        if (!qualifierResponse.ok) throw new Error(data.detail || '无法读取入围赛');
+        if (mine) {
+          select.innerHTML = '<option value="">请选择</option>';
+          for (const ai of mine.ais) {
+            const option = document.createElement('option');
+            option.value = ai.ai_id;
+            option.textContent = ai.display || ai.name;
+            select.appendChild(option);
+          }
+          if (mine.ais.some(ai => String(ai.ai_id) === previous)) select.value = previous;
+        }
+
+        jobs.replaceChildren();
+        if (!data.my_jobs.length) jobs.innerHTML = '<span class="upload-hint">暂无入围评测</span>';
+        data.my_jobs.forEach(job => jobs.appendChild(makeJobRow(job)));
+        qualifierHasActiveJobs = data.my_jobs.some(job => ['pending', 'running'].includes(job.status));
+
+        document.getElementById('qualified-count').textContent = `${data.qualified_count} 人`;
+        renderQualifierDocument(data.technical_document);
+        const myStatus = document.getElementById('my-qualified');
+        myStatus.textContent = data.my_qualified ? '你已入围' : '你尚未入围';
+        myStatus.className = `qualification-summary ${data.my_qualified ? 'ok' : 'pending'}`;
+      } catch (error) {
+        jobs.innerHTML = '<span class="err"></span>';
+        jobs.firstElementChild.textContent = error.message;
+      }
+    }
+
+    document.getElementById('qualifier-document-upload').onclick = async () => {
+      const button = document.getElementById('qualifier-document-upload');
+      const input = document.getElementById('qualifier-document-file');
+      const status = document.getElementById('qualifier-document-status');
+      const file = input.files[0];
+      if (!file) {
+        status.textContent = '请选择 PDF、DOCX 或 Markdown 文档';
+        status.className = 'upload-hint err';
+        return;
+      }
+      button.disabled = true;
+      status.textContent = '正在上传技术文档...';
+      status.className = 'upload-hint pending';
+      try {
+        const body = new FormData();
+        body.append('file', file);
+        const response = await fetch(`${apiBase}/qualifiers/document`, {
+          method: 'POST', body,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '上传失败');
+        renderQualifierDocument(data.technical_document);
+        input.value = '';
+      } catch (error) {
+        status.textContent = error.message;
+        status.className = 'upload-hint err';
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    document.getElementById('qualifier-start').onclick = async () => {
+      const button = document.getElementById('qualifier-start');
+      const status = document.getElementById('qualifier-status');
+      const aiId = Number(document.getElementById('qualifier-ai').value);
+      if (!aiId) {
+        status.textContent = '请选择本人上传的 AI';
+        status.className = 'err';
+        return;
+      }
+      button.disabled = true;
+      status.textContent = '正在创建...';
+      status.className = 'pending';
+      try {
+        const response = await fetch(`${apiBase}/qualifiers`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ai_id: aiId }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '创建失败');
+        status.textContent = '已创建两场 100 局比赛';
+        status.className = 'ok';
+        qualifierHasActiveJobs = true;
+        await refreshQualifiers(false);
+      } catch (error) {
+        status.textContent = error.message;
+        status.className = 'err';
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    async function refreshMyAis() {
+      const list = document.getElementById('my-ai-list');
+      const account = document.getElementById('my-ai-account');
+      try {
+        const resp = await fetch(`${apiBase}/my-ais`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || '无法读取');
+        account.textContent = data.jaccount ? `JAccount: ${data.jaccount}` : '';
+        list.innerHTML = '';
+        if (!data.ais.length) {
+          list.innerHTML = '<span class="upload-hint">还没有提交的 AI</span>';
+          return;
+        }
+        for (const ai of data.ais) {
+          const row = document.createElement('div');
+          row.className = 'my-ai-row';
+          row.innerHTML = `<span><strong></strong><small>更新 ${new Date(ai.created_at * 1000).toLocaleString()}</small></span>`;
+          row.querySelector('strong').textContent = ai.display || ai.name;
+          const actions = document.createElement('div');
+          actions.className = 'my-ai-actions';
+          const visibility = document.createElement('label');
+          visibility.className = 'visibility-toggle';
+          const toggle = document.createElement('input');
+          toggle.type = 'checkbox';
+          toggle.checked = ai.is_public;
+          const visibilityText = document.createElement('span');
+          visibilityText.textContent = ai.is_public ? '公开' : '私有';
+          visibility.append(toggle, visibilityText);
+          toggle.onchange = async () => {
+            const nextPublic = toggle.checked;
+            visibilityText.textContent = nextPublic ? '公开' : '私有';
+            toggle.disabled = true;
+            try {
+              const r = await fetch(`${apiBase}/my-ais/${ai.ai_id}/visibility`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_public: nextPublic }),
+              });
+              const d = await r.json();
+              if (!r.ok) throw new Error(d.detail || '更新失败');
+              await Promise.all([refreshMyAis(), refreshPublicAis(), refreshAiList()]);
+              setStatus(`${ai.name} 已设为${nextPublic ? '公开' : '私有'}`, 'ok');
+            } catch (err) {
+              toggle.checked = !nextPublic;
+              toggle.disabled = false;
+              visibilityText.textContent = toggle.checked ? '公开' : '私有';
+              setStatus(err.message, 'err');
+            }
+          };
+          const del = document.createElement('button');
+          del.type = 'button';
+          del.textContent = '删除';
+          del.onclick = async () => {
+            if (!window.confirm(`删除 ${ai.name}？`)) return;
+            del.disabled = true;
+            try {
+              const r = await fetch(`${apiBase}/my-ais/${encodeURIComponent(ai.name)}`, { method: 'DELETE' });
+              const d = await r.json();
+              if (!r.ok) throw new Error(d.detail || '删除失败');
+              await Promise.all([refreshMyAis(), refreshPublicAis(), refreshAiList()]);
+              setStatus(`已删除 ${ai.name}`, 'ok');
+            } catch (err) {
+              del.disabled = false;
+              setStatus(err.message, 'err');
+            }
+          };
+          actions.append(visibility, del);
+          row.appendChild(actions);
+          list.appendChild(row);
+        }
+      } catch (err) {
+        account.textContent = '';
+        list.innerHTML = `<span class="err">${err.message}</span>`;
+      }
+    }
+
+    async function refreshPublicAis() {
+      const list = document.getElementById('public-ai-list');
+      try {
+        const resp = await fetch(`${apiBase}/public-ais`);
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || '无法读取');
+        list.innerHTML = '';
+        if (!data.ais.length) {
+          list.innerHTML = '<span class="upload-hint">暂无已公开 AI</span>';
+          return;
+        }
+        for (const ai of data.ais) {
+          const row = document.createElement('div');
+          row.className = 'my-ai-row';
+          row.innerHTML = `<span><strong></strong><small></small></span>`;
+          row.querySelector('strong').textContent = ai.display || ai.name;
+          row.querySelector('small').textContent =
+            `${ai.author} · 更新 ${new Date(ai.created_at * 1000).toLocaleString()}`;
+          const download = document.createElement('a');
+          download.className = 'source-download';
+          download.href = `${apiBase}/public-ais/${ai.ai_id}/source`;
+          download.download = '';
+          download.textContent = '下载源码';
+          row.appendChild(download);
+          list.appendChild(row);
+        }
+      } catch (err) {
+        list.innerHTML = `<span class="err">${err.message}</span>`;
+      }
+    }
+    async function refreshUserChip() {
+      const chip = document.getElementById('user-chip');
+      const name = document.getElementById('user-chip-name');
+      if (!chip || !name) return;
+      try {
+        const resp = await fetch(`${apiBase}/me`);
+        if (!resp.ok) {
+          name.textContent = '点击登录';
+          chip.classList.add('user-chip-anon');
+          chip.title = '请先登录交龙';
+          chip.onclick = () => {
+            const redirect = location.pathname + location.search + location.hash;
+            window.location.href = '/contest/api/auth/jaccount?redirect=' + encodeURIComponent(redirect);
+          };
+          return;
+        }
+        const data = await resp.json();
+        name.textContent = data.display || data.login || '已登录';
+        chip.classList.remove('user-chip-anon');
+        chip.title = `${data.login || ''}${data.jaccount ? ' · ' + data.jaccount : ''}`;
+        chip.onclick = null;
+      } catch (err) {
+        name.textContent = '登录服务异常';
+        chip.classList.add('user-chip-anon');
+        chip.onclick = null;
+      }
+    }
+
+    refreshUserChip();
+    refreshMyAis();
+    refreshPublicAis();
+    refreshFormalCompetitions();
+    refreshQualifiers();
+    setInterval(() => {
+      refreshUserChip();
+      refreshMyAis();
+      if (document.querySelector('[data-view="public-ai-view"]').classList.contains('active')) {
+        refreshPublicAis();
+      }
+    }, 5000);
+    setInterval(() => {
+      if (formalHasActiveJobs && document.querySelector('[data-view="formal-view"]').classList.contains('active')) {
+        refreshFormalCompetitions();
+      }
+      if (qualifierHasActiveJobs && document.querySelector('[data-view="qualifier-view"]').classList.contains('active')) {
+        refreshQualifiers(false);
+      }
+    }, 500);
+
+    // ===== 房间 =====
+    // 持久化 token(避免刷新页面就丢身份)
+    function getAuthorToken() {
+      let t = localStorage.getItem('author_token');
+      if (!t) {
+        // 用 crypto 生成 16 字符
+        const arr = new Uint8Array(8);
+        crypto.getRandomValues(arr);
+        t = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+        localStorage.setItem('author_token', t);
+      }
+      return t;
+    }
+    function getRoomToken(code) {
+      // 房间 token 单独存(防止一个浏览器开多房间 token 串)
+      return sessionStorage.getItem('room_token_' + code) || '';
+    }
+    function setRoomToken(code, tok) {
+      sessionStorage.setItem('room_token_' + code, tok);
+    }
+
+    const tabCreate = document.getElementById('tab-create');
+    const tabJoin = document.getElementById('tab-join');
+    const createPane = document.getElementById('create-pane');
+    const joinPane = document.getElementById('join-pane');
+    tabCreate.onclick = () => {
+      tabCreate.classList.add('active'); tabJoin.classList.remove('active');
+      createPane.hidden = false; joinPane.hidden = true;
+    };
+    tabJoin.onclick = () => {
+      tabJoin.classList.add('active'); tabCreate.classList.remove('active');
+      joinPane.hidden = false; createPane.hidden = true;
+    };
+
+    const createBtn = document.getElementById('create-room-btn');
+    const createResult = document.getElementById('create-result');
+    const codeDisplay = document.getElementById('room-code-display');
+    async function copyRoomCode() {
+      const code = codeDisplay.textContent.trim();
+      if (!code) {
+        setStatus('暂无房间码', 'err');
+        return;
+      }
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(code);
+        } else {
+          throw new Error('clipboard unavailable');
+        }
+        setStatus('房间码已复制', 'ok');
+        return;
+      } catch (_) {
+        const input = document.createElement('textarea');
+        input.value = code;
+        input.setAttribute('readonly', '');
+        input.style.position = 'fixed';
+        input.style.left = '-9999px';
+        document.body.appendChild(input);
+        input.focus();
+        input.select();
+        input.setSelectionRange(0, input.value.length);
+        let copied = false;
+        try { copied = document.execCommand('copy'); } catch (_) {}
+        input.remove();
+        setStatus(copied ? '房间码已复制' : '复制失败，请手动选择房间码', copied ? 'ok' : 'err');
+      }
+    }
+    document.getElementById('copy-code').onclick = copyRoomCode;
+
+    let currentRoom = null;  // {code, creator_token}
+
+    createBtn.onclick = async () => {
+      createBtn.disabled = true;
+      try {
+        const r = await fetch(`${apiBase}/rooms`, { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '创建失败');
+        currentRoom = { code: d.code, token: d.creator_token, isCreator: true };
+        setRoomToken(d.code, d.creator_token);
+        codeDisplay.textContent = d.code;
+        createResult.hidden = false;
+        setStatus(`房间 ${d.code} 已创建`, 'ok');
+        startPollingRoom(d.code);
+      } catch (e) {
+        setStatus(`创建失败: ${e.message}`, 'err');
+      } finally {
+        createBtn.disabled = false;
+      }
+    };
+
+    const joinBtn = document.getElementById('join-room-btn');
+    const joinResult = document.getElementById('join-result');
+    const joinStatus = document.getElementById('join-status');
+    joinBtn.onclick = async () => {
+      const code = document.getElementById('join-code').value.trim().toUpperCase();
+      if (code.length !== 6) { joinStatus.textContent = '房间码 6 位'; joinStatus.className='err'; return; }
+      try {
+        const r = await fetch(`${apiBase}/rooms/${code}`);
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '房间不存在');
+        if (d.status === 'abandoned' || d.status === 'done') throw new Error('房间已结束');
+        if (d.red_slot && d.blue_slot) throw new Error('房间已满');
+        // 决定我方 side:已有 red 我就是 blue,否则我是 red
+        const mySide = d.red_slot ? 'blue' : 'red';
+        currentRoom = { code, token: getAuthorToken(), side: mySide, isCreator: false };
+        setRoomToken(code, currentRoom.token);
+        joinResult.hidden = false;
+        document.getElementById('join-side').value = mySide;
+        joinStatus.textContent = `已加入,你是${mySide === 'red' ? '红' : '蓝'}方`;
+        joinStatus.className = 'ok';
+        startPollingRoom(code);
+      } catch (e) {
+        joinStatus.textContent = e.message;
+        joinStatus.className = 'err';
+      }
+    };
+
+    async function uploadToRoom(side, name, source, statusEl, btn) {
+      if (!currentRoom) { statusEl.textContent = '先创建/加入房间'; statusEl.className='err'; return; }
+      btn.disabled = true; statusEl.textContent = '编译中...'; statusEl.className='pending';
+      try {
+        const body = new URLSearchParams({
+          side, upload_token: currentRoom.token,
+          name: name.trim(), source, display: name.trim(),
+        });
+        const r = await fetch(`${apiBase}/rooms/${currentRoom.code}/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '上传失败');
+        statusEl.textContent = `✓ 已绑定: ${name}`;
+        statusEl.className = 'ok';
+      } catch (e) {
+        statusEl.textContent = `✗ ${e.message}`;
+        statusEl.className = 'err';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('room-upload-btn').onclick = () => {
+      uploadToRoom('red',
+        document.getElementById('room-ai-name').value,
+        document.getElementById('room-ai-source').value,
+        document.getElementById('room-upload-status'),
+        document.getElementById('room-upload-btn'));
+    };
+    document.getElementById('join-upload-btn').onclick = () => {
+      uploadToRoom('blue',
+        document.getElementById('join-ai-name').value,
+        document.getElementById('join-ai-source').value,
+        document.getElementById('join-upload-status'),
+        document.getElementById('join-upload-btn'));
+    };
+
+    // ===== 房间源码包上传(zip/tar.gz) =====
+    async function uploadPackToRoom(side, name, file, statusEl, btn) {
+      if (!currentRoom) { statusEl.textContent = '先创建/加入房间'; statusEl.className='err'; return; }
+      if (!name.trim()) { statusEl.textContent = '请输入选手名'; statusEl.className='err'; return; }
+      if (!file) { statusEl.textContent = '请选择源码包(zip/tar.gz)'; statusEl.className='err'; return; }
+      btn.disabled = true; statusEl.textContent = '编译中...'; statusEl.className='pending';
+      try {
+        const fd = new FormData();
+        fd.append('side', side);
+        fd.append('upload_token', currentRoom.token);
+        fd.append('name', name.trim());
+        fd.append('display', name.trim());
+        fd.append('file', file);
+        const r = await fetch(`${apiBase}/rooms/${currentRoom.code}/upload_pack`, {
+          method: 'POST', body: fd,
+        });
+        const raw = await r.text();
+        let d;
+        try { d = raw ? JSON.parse(raw) : {}; }
+        catch (_) {
+          throw new Error(`服务器返回 ${r.status}: ${raw.slice(0, 240) || '空响应'}`);
+        }
+        if (!r.ok) throw new Error(d.detail || '上传失败');
+        statusEl.textContent = `✓ 源码包已绑定: ${name}`;
+        statusEl.className = 'ok';
+      } catch (e) {
+        statusEl.textContent = `✗ ${e.message}`;
+        statusEl.className = 'err';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('room-pack-btn').onclick = () => {
+      uploadPackToRoom('red',
+        document.getElementById('room-ai-name').value,
+        document.getElementById('room-pack-file').files[0],
+        document.getElementById('room-upload-status'),
+        document.getElementById('room-pack-btn'));
+    };
+    document.getElementById('join-pack-btn').onclick = () => {
+      uploadPackToRoom('blue',
+        document.getElementById('join-ai-name').value,
+        document.getElementById('join-pack-file').files[0],
+        document.getElementById('join-upload-status'),
+        document.getElementById('join-pack-btn'));
+    };
+
+    async function bindExistingToRoom(side, aiId, statusEl, btn) {
+      if (!currentRoom) { statusEl.textContent = '先创建/加入房间'; statusEl.className = 'err'; return; }
+      if (!aiId) { statusEl.textContent = '请选择已有 AI'; statusEl.className = 'err'; return; }
+      btn.disabled = true; statusEl.textContent = '绑定中...'; statusEl.className = 'pending';
+      try {
+        const body = new URLSearchParams({ side, upload_token: currentRoom.token, ai_id: aiId });
+        const r = await fetch(`${apiBase}/rooms/${currentRoom.code}/bind`, {
+          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body,
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '绑定失败');
+        statusEl.textContent = `✓ 已绑定: ${d.display}`;
+        statusEl.className = 'ok';
+      } catch (e) {
+        statusEl.textContent = `✗ ${e.message}`;
+        statusEl.className = 'err';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+    document.getElementById('create-bind-ai-btn').onclick = () => bindExistingToRoom(
+      'red', document.getElementById('create-existing-ai').value,
+      document.getElementById('room-upload-status'), document.getElementById('create-bind-ai-btn'));
+    document.getElementById('join-bind-ai-btn').onclick = () => bindExistingToRoom(
+      'blue', document.getElementById('join-existing-ai').value,
+      document.getElementById('join-upload-status'), document.getElementById('join-bind-ai-btn'));
+
+    // 模板按钮(create/join 都有)
+    document.querySelectorAll('#room-view .upload-tpl button').forEach(b => {
+      b.onclick = () => {
+        const ta = b.closest('.room-pane').querySelector('textarea');
+        ta.value = TEMPLATES[b.dataset.tpl] || '';
+      };
+    });
+
+    const startBtns = [...document.querySelectorAll('.start-room-match')];
+    let pollTimer = null;
+    let roomGameId = '';
+    function connectRoomGame(gameId) {
+      if (!gameId) return;
+      roomGameId = gameId;
+      gameIdInput.value = gameId;
+      allEvents = []; cursor = 0;
+      autoReplayAfterLive = true;
+      activateView('arena-view');
+      connect();
+    }
+    function showRoomGameFallback(gameId) {
+      for (const prefix of ['create', 'join']) {
+        const wrap = document.getElementById(`${prefix}-game-fallback`);
+        const code = document.getElementById(`${prefix}-game-id`);
+        if (wrap && code) {
+          code.textContent = gameId;
+          wrap.hidden = false;
+        }
+      }
+    }
+    document.getElementById('create-connect-game').onclick = () =>
+      connectRoomGame(document.getElementById('create-game-id').textContent);
+    document.getElementById('join-connect-game').onclick = () =>
+      connectRoomGame(document.getElementById('join-game-id').textContent);
+    function startPollingRoom(code) {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(async () => {
+        try {
+          const r = await fetch(`${apiBase}/rooms/${code}`);
+          if (!r.ok) return;
+          const d = await r.json();
+          const creator = currentRoom && currentRoom.isCreator;
+          if (d.status === 'ready') {
+            startBtns.forEach(btn => {
+              btn.disabled = !creator;
+              btn.textContent = creator ? '双方就绪，开始对局' : '双方就绪，等待房主开赛...';
+            });
+          } else if ((d.status === 'running' || d.status === 'done') && d.game_id && d.game_id !== roomGameId) {
+            showRoomGameFallback(d.game_id);
+            clearInterval(pollTimer);
+            connectRoomGame(d.game_id);
+          } else {
+            startBtns.forEach(btn => {
+              btn.disabled = true;
+              btn.textContent = `等待双方上传 (${d.status})...`;
+            });
+          }
+        } catch {}
+      }, 2000);
+    }
+    startBtns.forEach(startBtn => {
+      startBtn.onclick = async () => {
+        if (!currentRoom) return;
+        startBtn.disabled = true;
+        try {
+          const body = new URLSearchParams({ requester_token: currentRoom.token, max_turns: '20' });
+          const r = await fetch(`${apiBase}/rooms/${currentRoom.code}/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body,
+          });
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.detail || '开赛失败');
+          gameIdInput.value = d.game_id;
+          roomGameId = d.game_id;
+          showRoomGameFallback(d.game_id);
+          allEvents = []; cursor = 0;
+          setStatus(`房间 ${d.code} 开赛!game=${d.game_id}`, 'ok');
+          activateView('arena-view');
+          connect();
+        } catch (e) {
+          setStatus(`开赛失败: ${e.message}`, 'err');
+          startBtn.disabled = false;
+        }
+      };
+    });
+  </script>
+</body>
+</html>
