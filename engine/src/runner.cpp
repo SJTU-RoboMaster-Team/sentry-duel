@@ -343,12 +343,14 @@ int main(int argc, char** argv) {
         const int red_result = call_ai_act(red);
         if (red_result == 2) { winner = 2; reason = "red_crashed"; break; }
         if (red_result == 1) { g_board.blue.score++; std::fprintf(stderr, "[engine] red AI 超时，蓝方 +1\n"); }
+        end_side_turn(g_board, 'R');
         // 规则定义的先手补偿：蓝方仅获得红方回合结束时的位置情报，不获得可见状态。
         if (g_board.turn == 0) remember_enemy('B');
         const int blue_result = call_ai_act(blue);
         if (blue_result == 2) { winner = 1; reason = "blue_crashed"; break; }
         if (blue_result == 1) { g_board.red.score++; std::fprintf(stderr, "[engine] blue AI 超时，红方 +1\n"); }
-        end_turn(g_board);
+        end_side_turn(g_board, 'B');
+        end_round(g_board);
         const bool red_visible = direct_vision('R');
         const bool blue_visible = direct_vision('B');
         std::printf("{\"type\":\"turn_end\",\"turn\":%d,\"red_pos\":[%d,%d],\"blue_pos\":[%d,%d],"

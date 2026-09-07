@@ -18,5 +18,8 @@ struct ActionOutcome {
 // arg: 仅 turn 时使用('N'/'E'/'S'/'W'),其他行动忽略
 ActionOutcome apply_action(Board& b, char side, int action, char arg);
 
-// 回合结束:CD -1、占点计分、turn++
-void end_turn(Board& b);
+// 一方行动结束:该方位于得分区时 +1。
+void end_side_turn(Board& b, char side);
+
+// 双方行动结束:CD -1、turn++。
+void end_round(Board& b);

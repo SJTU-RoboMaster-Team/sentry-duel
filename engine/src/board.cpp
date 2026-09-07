@@ -179,19 +179,18 @@ ActionOutcome apply_action(Board& b, char side, int action, char arg) {
     return {false, false};
 }
 
-// 回合结束处理:CD -1,占点计分,刷新可见性
-void end_turn(Board& b) {
+void end_side_turn(Board& b, char side) {
+    Sentry& sentry = side == 'R' ? b.red : b.blue;
+    if (in_score_zone(sentry.last_known_pos, b.score_zones)) sentry.score++;
+}
+
+// 双方行动结束处理:CD -1,回合数 +1
+void end_round(Board& b) {
     // CD -1
     if (b.red.fire_cd > 0) b.red.fire_cd--;
     if (b.red.scan_cd > 0) b.red.scan_cd--;
     if (b.blue.fire_cd > 0) b.blue.fire_cd--;
     if (b.blue.scan_cd > 0) b.blue.scan_cd--;
-
-    // 占点计分:独占得 +1
-    bool red_in = in_score_zone(b.red.last_known_pos, b.score_zones);
-    bool blue_in = in_score_zone(b.blue.last_known_pos, b.score_zones);
-    if (red_in && !blue_in) b.red.score++;
-    else if (blue_in && !red_in) b.blue.score++;
 
     b.turn++;
 }

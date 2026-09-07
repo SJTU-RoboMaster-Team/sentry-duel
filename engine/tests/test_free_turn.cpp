@@ -1,5 +1,6 @@
 #include "match.h"
 #include "sentry_duel.h"
+#include "engine_internal.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -13,6 +14,7 @@ struct Results {
     ActionResult respawn_turn{};
     ActionResult respawn_move{};
     ActionResult turn_after_respawn_move{};
+    int red_score_seen_by_blue = -1;
 };
 
 void require(bool condition, const char* message) {
@@ -105,10 +107,46 @@ void run_respawn_cases() {
             "turn after leaving respawn point should consume an action");
 }
 
+void run_side_turn_scoring_case() {
+    Results results;
+    int red_phase = 0;
+    int blue_phase = 0;
+    sentry::Match match(
+        [&](const Board&, char) {
+            if (red_phase == 0) {
+                move(); move(); move();
+            } else if (red_phase == 1) {
+                turn('S'); move(); move();
+            }
+            ++red_phase;
+            return 0;
+        },
+        [&](const Board& board, char) {
+            if (blue_phase == 1) {
+                results.red_score_seen_by_blue = board.red.score;
+            }
+            ++blue_phase;
+            return 0;
+        },
+        "red", "blue", 2);
+    match.run();
+    require(results.red_score_seen_by_blue == 1,
+            "red should score before the following blue action phase");
+
+    Board board = make_initial_board(7);
+    board.red.last_known_pos = {3, 2};
+    board.blue.last_known_pos = {3, 3};
+    end_side_turn(board, 'R');
+    end_side_turn(board, 'B');
+    require(board.red.score == 1 && board.blue.score == 1,
+            "each side in the score zone should score at its own turn end");
+}
+
 } // namespace
 
 int main() {
     run_initial_cases();
     run_respawn_cases();
+    run_side_turn_scoring_case();
     return 0;
 }
