@@ -69,6 +69,12 @@ def init_db() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_ais_author ON ais(author);
 
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            author TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            updated_at REAL NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS rooms (
             code TEXT PRIMARY KEY,
             red_slot TEXT,    -- JSON {author,name,display,ai_id} 或 NULL
@@ -235,9 +241,30 @@ def list_selectable_ais(author: str) -> list[dict]:
 def list_public_ais() -> list[dict]:
     with _conn() as c:
         rows = c.execute(
-            "SELECT * FROM ais WHERE is_public=1 ORDER BY created_at DESC LIMIT 200"
+            """
+            SELECT ais.*, user_profiles.display_name AS owner_name
+            FROM ais
+            LEFT JOIN user_profiles ON user_profiles.author=ais.author
+            WHERE ais.is_public=1
+            ORDER BY ais.created_at DESC LIMIT 200
+            """
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def upsert_user_profile(author: str, display_name: str) -> None:
+    """记录公开列表所需的作者姓名，不存储或对外暴露 JAccount ID。"""
+    name = display_name.strip()
+    if not name:
+        return
+    with _conn() as c:
+        c.execute("""
+            INSERT INTO user_profiles (author, display_name, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(author) DO UPDATE SET
+                display_name=excluded.display_name,
+                updated_at=excluded.updated_at
+        """, (author, name, time.time()))
 
 
 def set_ai_public(ai_id: int, author: str, is_public: bool) -> bool:

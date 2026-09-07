@@ -54,7 +54,7 @@ from store import (
     get_technical_document,
     is_author_qualified, list_ais_for_author, list_public_ais, list_selectable_ais,
     qualified_user_count, record_ai, record_technical_document, set_ai_public,
-    update_competition_job, upsert_qualification,
+    update_competition_job, upsert_qualification, upsert_user_profile,
 )
 from rooms import (upload_to_room, upload_pack_to_room, bind_existing_to_room,
                    start_match, finish_match)
@@ -143,13 +143,15 @@ async def _contest_user(request: Request) -> dict:
                  or personal.get("jaccountAccount")
                  or personal.get("login")
                  or str(personal["id"]))
-    return {"id": str(personal["id"]),
+    user = {"id": str(personal["id"]),
             "login": personal.get("login") or str(personal["id"]),
             "jaccount": (personal.get("jaccountAccount")
                          or personal.get("jaccountId")
                          or str(personal["id"])),
             "name": real_name,
             "display": real_name}
+    upsert_user_profile(_user_author(user), real_name)
+    return user
 
 
 def _user_author(user: dict) -> str:
@@ -542,7 +544,8 @@ async def public_ais(request: Request):
             "ai_id": ai_id,
             "name": source.stem,
             "display": display,
-            "author": "builtin",
+            "owner_name": "交龙官方",
+            "public_id": ai_id.removeprefix("builtin:").upper(),
             "created_at": source.stat().st_mtime,
         }
         for ai_id, (display, source) in PUBLIC_BUILTINS.items()
@@ -554,7 +557,8 @@ async def public_ais(request: Request):
                 "ai_id": ai["id"],
                 "name": ai["name"],
                 "display": ai["display"],
-                "author": ai["author"],
+                "owner_name": ai["owner_name"] or "参赛者",
+                "public_id": f"AI-{ai['id']:04d}",
                 "created_at": ai["created_at"],
             }
             for ai in list_public_ais()

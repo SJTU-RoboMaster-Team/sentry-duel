@@ -1793,7 +1793,7 @@ extern "C" void act(const Board& board, char my_color) {
           row.innerHTML = `<span><strong></strong><small></small></span>`;
           row.querySelector('strong').textContent = ai.display || ai.name;
           row.querySelector('small').textContent =
-            `${ai.author} · 更新 ${new Date(ai.created_at * 1000).toLocaleString()}`;
+            `${ai.owner_name} · ${ai.public_id} · 更新 ${new Date(ai.created_at * 1000).toLocaleString()}`;
           const download = document.createElement('a');
           download.className = 'source-download';
           download.href = `${apiBase}/public-ais/${ai.ai_id}/source`;

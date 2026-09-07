@@ -66,7 +66,11 @@ def test_existing_database_migrates_to_private(tmp_path, monkeypatch):
         row = connection.execute(
             "SELECT is_public FROM ais WHERE author='legacy' AND name='old'"
         ).fetchone()
+        profiles_table = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='user_profiles'"
+        ).fetchone()
     assert row == (0,)
+    assert profiles_table == ("user_profiles",)
 
 
 def test_private_ai_is_owner_only_until_published(client):
@@ -115,8 +119,12 @@ def test_private_ai_is_owner_only_until_published(client):
     assert published.status_code == 200
     assert published.json()["is_public"] is True
 
+    store.upsert_user_profile(ai["author"], "测试选手")
     public_ais = client.get("/api/public-ais", headers=_headers("other")).json()["ais"]
-    assert ai["id"] in {item["ai_id"] for item in public_ais}
+    published_ai = next(item for item in public_ais if item["ai_id"] == ai["id"])
+    assert published_ai["owner_name"] == "测试选手"
+    assert published_ai["public_id"] == f"AI-{ai['id']:04d}"
+    assert "author" not in published_ai
     other_choices = client.get("/api/ais", headers=_headers("other")).json()["ais"]
     assert ref in {item["name"] for item in other_choices}
 
