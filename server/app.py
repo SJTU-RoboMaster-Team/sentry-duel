@@ -45,10 +45,11 @@ from store import (
     create_competition_job, create_competition_jobs,
     create_leaderboard_submission,
     get_competition_job, list_competition_jobs,
-    delete_ai, get_ai, get_ai_by_author_name, get_leaderboard_entry,
+    delete_ai, get_ai, get_ai_by_author_name,
     get_leaderboard_entry_by_ai_id,
     get_leaderboard_submission, latest_daily_leaderboard_snapshot,
     latest_leaderboard_submission, leaderboard_standings,
+    leaderboard_entry_ai_ids,
     get_technical_document, list_admin_qualifier_participants,
     is_author_qualified, list_ais_for_author, list_leaderboard_entries,
     list_public_ais, list_selectable_ais,
@@ -483,7 +484,7 @@ def _leaderboard_submission_metadata(submission: Optional[dict]) -> Optional[dic
     }
 
 
-def _leaderboard_payload(author: str) -> dict:
+def _leaderboard_payload(author: str, allow_multiple: bool) -> dict:
     standings = leaderboard_standings()
     for entry in standings:
         entry["source_download_url"] = (
@@ -491,10 +492,12 @@ def _leaderboard_payload(author: str) -> dict:
             if entry["is_open_source"] else None
         )
     daily = latest_daily_leaderboard_snapshot()
-    my_entry = get_leaderboard_entry(author)
+    my_entry_ai_ids = leaderboard_entry_ai_ids(author)
     return {
         "standings": standings,
-        "my_entry_ai_id": my_entry["ai_id"] if my_entry else None,
+        "my_entry_ai_id": my_entry_ai_ids[0] if my_entry_ai_ids else None,
+        "my_entry_ai_ids": my_entry_ai_ids,
+        "allow_multiple": allow_multiple,
         "my_submission": _leaderboard_submission_metadata(
             latest_leaderboard_submission(author)
         ),
@@ -534,7 +537,7 @@ async def _run_leaderboard_submission(submission_id: str,
         update_leaderboard_submission(
             submission_id, status="running", started_at=time.time()
         )
-        opponents = list_leaderboard_entries(submission["author"])
+        opponents = list_leaderboard_entries(submission["entry_key"])
         for completed, opponent in enumerate(opponents, 1):
             opponent_binary = Path(opponent["binary_path"])
             if not opponent_binary.is_file():
@@ -571,7 +574,7 @@ async def get_leaderboard(request: Request):
     user = await _contest_user(request)
     standings = leaderboard_standings()
     save_daily_leaderboard_snapshot(datetime.now().date().isoformat(), standings)
-    return _leaderboard_payload(_user_author(user))
+    return _leaderboard_payload(_user_author(user), _is_admin_user(user))
 
 
 @app.post("/api/leaderboard/submissions")
@@ -585,17 +588,19 @@ async def submit_to_leaderboard(request: Request):
     if not isinstance(is_open_source, bool):
         raise HTTPException(400, "is_open_source 必须是布尔值")
     author = _user_author(user)
+    allow_multiple = _is_admin_user(user)
     ai = get_ai(ai_id)
     if not ai or ai["author"] != author:
         raise HTTPException(404, "只能提交当前账号拥有的 AI")
     if not Path(ai["so_path"]).is_file():
         raise HTTPException(404, "AI 编译产物不存在")
     submission_id = f"leaderboard-{int(time.time() * 1000)}-{secrets.token_hex(3)}"
+    entry_key = f"{author}:ai:{ai['id']}" if allow_multiple else author
     snapshot = None
     try:
         snapshot = _snapshot_leaderboard_ai(submission_id, ai)
         submission = create_leaderboard_submission(
-            submission_id, author, user["login"], user["jaccount"],
+            submission_id, author, entry_key, user["login"], user["jaccount"],
             ai["id"], ai["name"], is_open_source,
             str(snapshot["directory"]), snapshot["binary_sha256"],
             snapshot["source_sha256"],

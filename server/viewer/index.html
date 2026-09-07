@@ -211,7 +211,7 @@
   <section id="leaderboard-view" class="app-view work-view leaderboard-view" hidden>
     <div class="view-heading">
       <div><p class="eyebrow">AI LEADERBOARD</p><h2>AI 排行榜</h2></div>
-      <p>每个账号只保留一个榜位，24 小时最多提交 3 次；每次与榜内所有 AI 各进行 20 局平衡对战。</p>
+      <p>24 小时最多提交 3 次；每次与当前其他榜位各进行 20 局平衡对战，完成后立即更新排名。</p>
     </div>
     <section class="competition-panel leaderboard-submit" aria-labelledby="leaderboard-submit-title">
       <div class="competition-controls">
@@ -220,6 +220,7 @@
         <label class="visibility-toggle"><input id="leaderboard-open-source" type="checkbox">公开本次打榜源码</label>
         <button id="leaderboard-submit" class="primary">开始打榜</button>
         <span id="leaderboard-submit-status" class="upload-hint"></span>
+        <small id="leaderboard-entry-policy" class="upload-hint"></small>
       </div>
       <div class="leaderboard-meta">
         <span>动态榜单</span>
@@ -1493,6 +1494,9 @@ extern "C" void act(const Board& board, char my_color) {
 
     function renderLeaderboard(data) {
       const body = document.getElementById('leaderboard-list');
+      const myEntryAiIds = new Set(data.my_entry_ai_ids || (
+        data.my_entry_ai_id === null ? [] : [data.my_entry_ai_id]
+      ));
       body.replaceChildren();
       if (!data.standings.length) {
         const row = document.createElement('tr');
@@ -1504,7 +1508,7 @@ extern "C" void act(const Board& board, char my_color) {
       }
       for (const entry of data.standings) {
         const row = document.createElement('tr');
-        if (entry.ai_id === data.my_entry_ai_id) row.className = 'leaderboard-mine';
+        if (myEntryAiIds.has(entry.ai_id)) row.className = 'leaderboard-mine';
         const values = [
           entry.rank,
           `${entry.ai_name} · ${entry.public_id}`,
@@ -1543,6 +1547,9 @@ extern "C" void act(const Board& board, char my_color) {
       snapshot.textContent = data.latest_snapshot
         ? `官方日榜：${data.latest_snapshot.date}`
         : '每日榜单尚未生成';
+      document.getElementById('leaderboard-entry-policy').textContent = data.allow_multiple
+        ? '当前账号的每个 AI 可独立保留榜位，不同 AI 之间也会参与对战'
+        : '每个账号保留一个 AI 榜位，再次成功打榜会替换原榜位';
       const submission = data.my_submission;
       const status = document.getElementById('leaderboard-submit-status');
       const button = document.getElementById('leaderboard-submit');

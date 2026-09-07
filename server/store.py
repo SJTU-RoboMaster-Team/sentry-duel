@@ -139,6 +139,7 @@ def init_db() -> None:
 
         CREATE TABLE IF NOT EXISTS leaderboard_entries (
             author TEXT PRIMARY KEY,
+            account_author TEXT NOT NULL,
             login TEXT NOT NULL,
             ai_id INTEGER NOT NULL,
             ai_name TEXT NOT NULL,
@@ -170,6 +171,7 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS leaderboard_submissions (
             id TEXT PRIMARY KEY,
             author TEXT NOT NULL,
+            entry_key TEXT NOT NULL,
             login TEXT NOT NULL,
             jaccount TEXT NOT NULL,
             ai_id INTEGER NOT NULL,
@@ -199,6 +201,25 @@ def init_db() -> None:
         if "is_public" not in columns:
             c.execute("ALTER TABLE ais ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0")
         c.execute("CREATE INDEX IF NOT EXISTS idx_ais_public ON ais(is_public)")
+        entry_columns = {
+            row["name"] for row in c.execute("PRAGMA table_info(leaderboard_entries)")
+        }
+        if "account_author" not in entry_columns:
+            c.execute("ALTER TABLE leaderboard_entries ADD COLUMN account_author TEXT")
+        c.execute(
+            "UPDATE leaderboard_entries SET account_author=author "
+            "WHERE account_author IS NULL OR account_author=''"
+        )
+        submission_columns = {
+            row["name"]
+            for row in c.execute("PRAGMA table_info(leaderboard_submissions)")
+        }
+        if "entry_key" not in submission_columns:
+            c.execute("ALTER TABLE leaderboard_submissions ADD COLUMN entry_key TEXT")
+        c.execute(
+            "UPDATE leaderboard_submissions SET entry_key=author "
+            "WHERE entry_key IS NULL OR entry_key=''"
+        )
         c.execute("""
             UPDATE competition_jobs
             SET status='failed', error='服务重启，对局中断', ended_at=?
@@ -440,8 +461,9 @@ _LEADERBOARD_SUBMISSION_FIELDS = {
 }
 
 
-def create_leaderboard_submission(submission_id: str, author: str, login: str,
-                                  jaccount: str, ai_id: int, ai_name: str,
+def create_leaderboard_submission(submission_id: str, author: str,
+                                  entry_key: str, login: str, jaccount: str,
+                                  ai_id: int, ai_name: str,
                                   is_open_source: bool, snapshot_dir: str,
                                   binary_sha256: str,
                                   source_sha256: Optional[str]) -> dict:
@@ -464,15 +486,16 @@ def create_leaderboard_submission(submission_id: str, author: str, login: str,
         if recent >= 3:
             raise ValueError("每个账号 24 小时内最多提交 3 次排行榜评测")
         opponents = c.execute(
-            "SELECT COUNT(*) FROM leaderboard_entries WHERE author<>?", (author,)
+            "SELECT COUNT(*) FROM leaderboard_entries WHERE author<>?",
+            (entry_key,),
         ).fetchone()[0]
         c.execute("""
             INSERT INTO leaderboard_submissions
-                (id,author,login,jaccount,ai_id,ai_name,is_open_source,status,
+                (id,author,entry_key,login,jaccount,ai_id,ai_name,is_open_source,status,
                  total_opponents,snapshot_dir,binary_sha256,source_sha256,created_at)
-            VALUES (?,?,?,?,?,?,?,'pending',?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,'pending',?,?,?,?,?)
         """, (
-            submission_id, author, login, jaccount, ai_id, ai_name,
+            submission_id, author, entry_key, login, jaccount, ai_id, ai_name,
             1 if is_open_source else 0, opponents, snapshot_dir,
             binary_sha256, source_sha256, now,
         ))
@@ -515,26 +538,38 @@ def update_leaderboard_submission(submission_id: str, **fields) -> Optional[dict
     return get_leaderboard_submission(submission_id)
 
 
-def list_leaderboard_entries(exclude_author: Optional[str] = None) -> list[dict]:
+def list_leaderboard_entries(exclude_entry_key: Optional[str] = None) -> list[dict]:
     with _conn() as c:
-        if exclude_author is None:
+        if exclude_entry_key is None:
             rows = c.execute(
                 "SELECT * FROM leaderboard_entries ORDER BY ranked_at"
             ).fetchall()
         else:
             rows = c.execute(
                 "SELECT * FROM leaderboard_entries WHERE author<>? ORDER BY ranked_at",
-                (exclude_author,),
+                (exclude_entry_key,),
             ).fetchall()
         return [dict(row) for row in rows]
 
 
-def get_leaderboard_entry(author: str) -> Optional[dict]:
+def get_leaderboard_entry(entry_key: str) -> Optional[dict]:
     with _conn() as c:
         row = c.execute(
-            "SELECT * FROM leaderboard_entries WHERE author=?", (author,)
+            "SELECT * FROM leaderboard_entries WHERE author=?", (entry_key,)
         ).fetchone()
         return dict(row) if row else None
+
+
+def leaderboard_entry_ai_ids(account_author: str) -> list[int]:
+    with _conn() as c:
+        return [
+            row["ai_id"]
+            for row in c.execute(
+                "SELECT ai_id FROM leaderboard_entries "
+                "WHERE account_author=? ORDER BY ranked_at",
+                (account_author,),
+            ).fetchall()
+        ]
 
 
 def get_leaderboard_entry_by_ai_id(ai_id: int) -> Optional[dict]:
@@ -553,19 +588,21 @@ def promote_leaderboard_submission(submission_id: str,
     if not submission:
         raise ValueError("排行榜提交不存在")
     author = submission["author"]
+    entry_key = submission["entry_key"] or author
     now = time.time()
     binary_path = str(Path(submission["snapshot_dir"]) / "candidate.so")
     with _lock, _conn() as c:
         c.execute(
             "DELETE FROM leaderboard_matches "
-            "WHERE challenger_author=? OR opponent_author=?", (author, author)
+            "WHERE challenger_author=? OR opponent_author=?", (entry_key, entry_key)
         )
         c.execute("""
             INSERT INTO leaderboard_entries
-                (author,login,ai_id,ai_name,binary_path,source_path,source_filename,
+                (author,account_author,login,ai_id,ai_name,binary_path,source_path,source_filename,
                  binary_sha256,source_sha256,is_open_source,submitted_at,ranked_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(author) DO UPDATE SET
+                account_author=excluded.account_author,
                 login=excluded.login, ai_id=excluded.ai_id,
                 ai_name=excluded.ai_name, binary_path=excluded.binary_path,
                 source_path=excluded.source_path,
@@ -575,7 +612,7 @@ def promote_leaderboard_submission(submission_id: str,
                 is_open_source=excluded.is_open_source,
                 submitted_at=excluded.submitted_at, ranked_at=excluded.ranked_at
         """, (
-            author, submission["login"], submission["ai_id"],
+            entry_key, author, submission["login"], submission["ai_id"],
             submission["ai_name"], binary_path, source_path, source_filename,
             submission["binary_sha256"], submission["source_sha256"],
             1 if submission["is_open_source"] else 0,
@@ -588,7 +625,7 @@ def promote_leaderboard_submission(submission_id: str,
                      opponent_wins,draws,challenger_score,opponent_score,played_at)
                 VALUES (?,?,?,?,?,?,?,?)
             """, (
-                author, match["opponent_author"], match["challenger_wins"],
+                entry_key, match["opponent_author"], match["challenger_wins"],
                 match["opponent_wins"], match["draws"],
                 match["challenger_score"], match["opponent_score"], now,
             ))
@@ -604,7 +641,7 @@ def leaderboard_standings() -> list[dict]:
         entry_rows = c.execute("""
             SELECT e.*, p.display_name AS owner_name
             FROM leaderboard_entries e
-            LEFT JOIN user_profiles p ON p.author=e.author
+            LEFT JOIN user_profiles p ON p.author=e.account_author
         """).fetchall()
         match_rows = c.execute("SELECT * FROM leaderboard_matches").fetchall()
     standings: dict[str, dict] = {}

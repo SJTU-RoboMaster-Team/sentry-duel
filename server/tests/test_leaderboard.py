@@ -1,6 +1,7 @@
 """AI 排行榜提交、排名和源码快照行为。"""
 from __future__ import annotations
 
+import sqlite3
 import time
 from pathlib import Path
 
@@ -110,6 +111,8 @@ def test_first_entry_and_exact_open_source_snapshot(client):
 
     listing = client.get("/api/leaderboard", headers=_headers("first")).json()
     assert listing["my_entry_ai_id"] == ai["id"]
+    assert listing["my_entry_ai_ids"] == [ai["id"]]
+    assert listing["allow_multiple"] is False
     assert len(listing["standings"]) == 1
     assert listing["standings"][0]["score_rate"] is None
     source = client.get(
@@ -208,6 +211,101 @@ def test_replacement_is_one_entry_and_failure_keeps_previous_entry(
     assert store.get_leaderboard_entry("contest-owner")["ai_id"] == new_ai["id"]
     assert len(store.list_leaderboard_entries()) == 2
 
+
+def test_admin_can_keep_multiple_entries_that_play_each_other(
+        client, monkeypatch):
+    monkeypatch.setenv("SENTRY_DUEL_ADMIN_JACCOUNTS", "ja-admin")
+    first = _record_ai("admin", "admin-first")
+    first_response = _submit(client, "admin", first["id"])
+    assert first_response.status_code == 200, first_response.text
+    _wait_for_submission(client, "admin", first_response.json()["id"])
+
+    calls = []
+
+    def fake_series(a, b, games_per_side, progress):
+        calls.append((Path(a), Path(b), games_per_side))
+        return _series(9, 9, 2)
+
+    monkeypatch.setattr(app_module, "run_balanced_series", fake_series)
+    second = _record_ai("admin", "admin-second")
+    second_response = _submit(client, "admin", second["id"])
+    assert second_response.status_code == 200, second_response.text
+    done = _wait_for_submission(client, "admin", second_response.json()["id"])
+
+    assert done["status"] == "done"
+    assert done["total_opponents"] == done["completed_opponents"] == 1
+    assert len(calls) == 1
+    assert calls[0][2] == 10
+    entries = store.list_leaderboard_entries()
+    assert {entry["ai_id"] for entry in entries} == {first["id"], second["id"]}
+    assert {entry["account_author"] for entry in entries} == {"contest-admin"}
+    assert {entry["author"] for entry in entries} == {
+        f"contest-admin:ai:{first['id']}",
+        f"contest-admin:ai:{second['id']}",
+    }
+
+    listing = client.get("/api/leaderboard", headers=_headers("admin")).json()
+    assert listing["allow_multiple"] is True
+    assert set(listing["my_entry_ai_ids"]) == {first["id"], second["id"]}
+    assert len(listing["standings"]) == 2
+    assert all(entry["games"] == 20 for entry in listing["standings"])
+
+
+def test_init_db_migrates_existing_leaderboard_rows(monkeypatch, tmp_path):
+    old_db = tmp_path / "old-app.db"
+    with sqlite3.connect(old_db) as connection:
+        connection.executescript("""
+            CREATE TABLE leaderboard_entries (
+                author TEXT PRIMARY KEY, login TEXT NOT NULL,
+                ai_id INTEGER NOT NULL, ai_name TEXT NOT NULL,
+                binary_path TEXT NOT NULL, source_path TEXT,
+                source_filename TEXT, binary_sha256 TEXT NOT NULL,
+                source_sha256 TEXT, is_open_source INTEGER NOT NULL,
+                submitted_at REAL NOT NULL, ranked_at REAL NOT NULL
+            );
+            CREATE TABLE leaderboard_submissions (
+                id TEXT PRIMARY KEY, author TEXT NOT NULL, login TEXT NOT NULL,
+                jaccount TEXT NOT NULL, ai_id INTEGER NOT NULL,
+                ai_name TEXT NOT NULL, is_open_source INTEGER NOT NULL,
+                status TEXT NOT NULL, total_opponents INTEGER NOT NULL,
+                completed_opponents INTEGER NOT NULL DEFAULT 0,
+                snapshot_dir TEXT NOT NULL, binary_sha256 TEXT NOT NULL,
+                source_sha256 TEXT, error TEXT, created_at REAL NOT NULL,
+                started_at REAL, ended_at REAL
+            );
+            INSERT INTO leaderboard_entries VALUES
+                ('contest-old','old-login',7,'old-ai','/tmp/old.so',NULL,NULL,
+                 'binary-hash',NULL,0,1.0,2.0);
+            INSERT INTO leaderboard_submissions VALUES
+                ('old-job','contest-old','old-login','old-ja',7,'old-ai',0,
+                 'done',0,0,'/tmp/old-job','binary-hash',NULL,NULL,1.0,1.0,2.0);
+        """)
+
+    monkeypatch.setattr(store, "DB_PATH", old_db)
+    store.init_db()
+
+    with store._conn() as connection:
+        entry_columns = {
+            row["name"] for row in connection.execute(
+                "PRAGMA table_info(leaderboard_entries)"
+            )
+        }
+        submission_columns = {
+            row["name"] for row in connection.execute(
+                "PRAGMA table_info(leaderboard_submissions)"
+            )
+        }
+        entry = connection.execute(
+            "SELECT account_author FROM leaderboard_entries"
+        ).fetchone()
+        submission = connection.execute(
+            "SELECT entry_key FROM leaderboard_submissions"
+        ).fetchone()
+
+    assert "account_author" in entry_columns
+    assert "entry_key" in submission_columns
+    assert entry["account_author"] == "contest-old"
+    assert submission["entry_key"] == "contest-old"
 
 def test_daily_snapshot_is_frozen_for_the_date():
     assert store.save_daily_leaderboard_snapshot("2026-09-07", [{"rank": 1}])
