@@ -307,3 +307,44 @@ def test_qualifier_status_and_start_do_not_require_document(client, monkeypatch)
     )
     assert downloaded.status_code == 200
     assert downloaded.content == b"%PDF-1.7 test report"
+
+
+def test_admin_can_review_qualifiers_and_download_documents(client, monkeypatch):
+    monkeypatch.setenv("SENTRY_DUEL_ADMIN_JACCOUNTS", "ja-admin")
+    candidate = _record_ai("admin-review-candidate", "reviewed-ai")
+    store.upsert_user_profile(candidate["author"], "参赛选手")
+    _upload_document(client, "admin-review-candidate", "review.md")
+    passed = {"wins": 61, "losses": 31, "draws": 8}
+    store.upsert_qualification(
+        candidate["author"], "login-admin-review-candidate",
+        "ja-admin-review-candidate", candidate["id"], candidate["name"],
+        "admin-review-attempt", True, passed, passed,
+    )
+
+    denied = client.get("/api/admin/qualifiers", headers=_headers("outsider"))
+    assert denied.status_code == 403
+    assert client.get(
+        f"/api/admin/technical-documents/{candidate['author']}/download",
+        headers=_headers("outsider"),
+    ).status_code == 403
+
+    me = client.get("/api/me", headers=_headers("admin")).json()
+    assert me["is_admin"] is True
+    response = client.get("/api/admin/qualifiers", headers=_headers("admin"))
+    assert response.status_code == 200
+    reviewed = next(
+        item for item in response.json()["participants"]
+        if item["participant_id"] == candidate["author"]
+    )
+    assert reviewed["name"] == "参赛选手"
+    assert reviewed["qualified"] is True
+    assert reviewed["qualifications"][0]["baseline_wins"] == 61
+    assert reviewed["technical_document"]["name"] == "review.md"
+    assert "stored_path" not in reviewed["technical_document"]
+
+    downloaded = client.get(
+        f"/api/admin/technical-documents/{candidate['author']}/download",
+        headers=_headers("admin"),
+    )
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"%PDF-1.7 test report"

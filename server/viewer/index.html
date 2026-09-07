@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>哨兵大战 - 实时观战</title>
-  <link rel="stylesheet" href="static/style.css?v=20260904-open-source">
+  <link rel="stylesheet" href="static/style.css?v=20260907-admin">
   <link rel="icon" href="static/favicon.ico">
   <script type="importmap">
     {
@@ -49,6 +49,7 @@
       <button class="view-tab" data-view="public-ai-view">已公开 AI</button>
       <button class="view-tab" data-view="formal-view">正式比赛</button>
       <button class="view-tab" data-view="qualifier-view">入围赛</button>
+      <button id="admin-tab" class="view-tab" data-view="admin-view" hidden>赛事后台</button>
       <button class="view-tab" data-view="docs-view">开发文档</button>
       <a class="view-tab view-external-link" href="https://jiaoloong.sjtu.edu.cn/" target="_blank" rel="noopener noreferrer">交龙官网</a>
     </nav>
@@ -254,6 +255,26 @@
         <div id="my-qualified" class="qualification-summary pending">正在查询我的状态...</div>
       </section>
     </div>
+  </section>
+
+  <section id="admin-view" class="app-view work-view admin-view" hidden>
+    <div class="view-heading">
+      <div><p class="eyebrow">ADMIN CONSOLE</p><h2>赛事后台</h2></div>
+      <button id="admin-refresh">刷新数据</button>
+    </div>
+    <div class="admin-summary" aria-label="赛事统计">
+      <div><span>参赛者</span><strong id="admin-participants">0</strong></div>
+      <div><span>已评测</span><strong id="admin-evaluated">0</strong></div>
+      <div><span>已入围</span><strong id="admin-qualified">0</strong></div>
+      <div><span>已交文档</span><strong id="admin-documents">0</strong></div>
+    </div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>参赛者</th><th>AI</th><th>入围状态</th><th>Baseline</th><th>Hunter</th><th>技术文档</th><th>最后更新</th></tr></thead>
+        <tbody id="admin-participant-list"><tr><td colspan="7">正在加载...</td></tr></tbody>
+      </table>
+    </div>
+    <p id="admin-status" class="upload-hint"></p>
   </section>
 
   <section id="docs-view" class="app-view work-view" hidden>
@@ -489,6 +510,7 @@
       humanModeActive = viewId === 'human-view';
       document.body.classList.toggle('human-mode-active', humanModeActive);
       document.body.classList.toggle('rules-view-active', viewId === 'rules-view');
+      document.body.classList.toggle('admin-view-active', viewId === 'admin-view');
       arena3d.setHumanView(humanModeActive);
     }
     viewTabs.forEach(tab => tab.onclick = () => {
@@ -498,6 +520,7 @@
       if (tab.dataset.view === 'public-ai-view') refreshPublicAis();
       if (tab.dataset.view === 'formal-view') refreshFormalCompetitions();
       if (tab.dataset.view === 'qualifier-view') refreshQualifiers();
+      if (tab.dataset.view === 'admin-view') refreshAdminOverview();
       if (tab.dataset.view === 'human-view') makeBoard();
       if (tab.dataset.view === 'human-view' || wasHumanMode) render({ immediate: true });
     });
@@ -1776,6 +1799,96 @@ extern "C" void act(const Board& board, char my_color) {
       }
     }
 
+    function appendAdminCell(row, text, className = '') {
+      const cell = document.createElement('td');
+      cell.textContent = text;
+      if (className) cell.className = className;
+      row.appendChild(cell);
+      return cell;
+    }
+
+    async function refreshAdminOverview() {
+      const body = document.getElementById('admin-participant-list');
+      const status = document.getElementById('admin-status');
+      status.textContent = '正在刷新...';
+      try {
+        const response = await fetch(`${apiBase}/admin/qualifiers`);
+        const data = await response.json();
+        if (response.status === 403) updateAdminAccess(false);
+        if (!response.ok) throw new Error(data.detail || '无法读取后台数据');
+        document.getElementById('admin-participants').textContent = data.summary.participants;
+        document.getElementById('admin-evaluated').textContent = data.summary.evaluated;
+        document.getElementById('admin-qualified').textContent = data.summary.qualified;
+        document.getElementById('admin-documents').textContent = data.summary.documents;
+        body.replaceChildren();
+        if (!data.participants.length) {
+          const row = document.createElement('tr');
+          const cell = appendAdminCell(row, '暂无参赛数据');
+          cell.colSpan = 7;
+          body.appendChild(row);
+        }
+        for (const participant of data.participants) {
+          const row = document.createElement('tr');
+          const identity = appendAdminCell(row, participant.name);
+          const account = document.createElement('small');
+          account.textContent = participant.jaccount || participant.login || '';
+          identity.appendChild(account);
+          appendAdminCell(
+            row,
+            participant.ais.length
+              ? participant.ais.map(ai => `${ai.display || ai.name} (AI-${String(ai.id).padStart(4, '0')})`).join('\n')
+              : '尚未提交',
+            'admin-ai-cell',
+          );
+          const latest = participant.qualifications[0] || null;
+          let state = participant.qualified ? '已入围' : '未入围';
+          if (!latest) {
+            const active = participant.qualifier_jobs.some(job => ['pending', 'running'].includes(job.status));
+            state = active ? '评测中' : '未评测';
+          }
+          appendAdminCell(row, state, participant.qualified ? 'admin-pass' : 'admin-pending');
+          appendAdminCell(row, latest
+            ? `${latest.baseline_wins} 胜 / ${latest.baseline_losses} 负 / ${latest.baseline_draws} 平`
+            : '-');
+          appendAdminCell(row, latest
+            ? `${latest.hunter_wins} 胜 / ${latest.hunter_losses} 负 / ${latest.hunter_draws} 平`
+            : '-');
+          const documentCell = appendAdminCell(row, participant.technical_document ? '' : '未提交');
+          if (participant.technical_document) {
+            const download = document.createElement('a');
+            download.className = 'source-download';
+            download.href = `${apiBase}/admin/technical-documents/${encodeURIComponent(participant.participant_id)}/download`;
+            download.textContent = participant.technical_document.name;
+            documentCell.appendChild(download);
+          }
+          const updatedAt = Math.max(
+            latest?.evaluated_at || 0,
+            participant.technical_document?.uploaded_at || 0,
+            ...participant.ais.map(ai => ai.created_at || 0),
+          );
+          appendAdminCell(row, updatedAt ? new Date(updatedAt * 1000).toLocaleString() : '-');
+          body.appendChild(row);
+        }
+        status.textContent = `已更新 · ${new Date().toLocaleTimeString()}`;
+      } catch (error) {
+        body.innerHTML = '<tr><td colspan="7" class="err"></td></tr>';
+        body.querySelector('td').textContent = error.message;
+        status.textContent = '';
+      }
+    }
+
+    document.getElementById('admin-refresh').onclick = refreshAdminOverview;
+
+    function updateAdminAccess(canAccess) {
+      const adminTab = document.getElementById('admin-tab');
+      adminTab.hidden = !canAccess;
+      if (!canAccess) {
+        document.getElementById('admin-participant-list').innerHTML =
+          '<tr><td colspan="7">无权访问</td></tr>';
+        if (adminTab.classList.contains('active')) activateView('rules-view');
+      }
+    }
+
     async function refreshPublicAis() {
       const list = document.getElementById('public-ai-list');
       try {
@@ -1813,6 +1926,7 @@ extern "C" void act(const Board& board, char my_color) {
       try {
         const resp = await fetch(`${apiBase}/me`);
         if (!resp.ok) {
+          updateAdminAccess(false);
           name.textContent = '点击登录';
           chip.classList.add('user-chip-anon');
           chip.title = '请先登录交龙';
@@ -1824,10 +1938,12 @@ extern "C" void act(const Board& board, char my_color) {
         }
         const data = await resp.json();
         name.textContent = data.display || data.login || '已登录';
+        updateAdminAccess(Boolean(data.is_admin));
         chip.classList.remove('user-chip-anon');
         chip.title = `${data.login || ''}${data.jaccount ? ' · ' + data.jaccount : ''}`;
         chip.onclick = null;
       } catch (err) {
+        updateAdminAccess(false);
         name.textContent = '登录服务异常';
         chip.classList.add('user-chip-anon');
         chip.onclick = null;

@@ -473,6 +473,61 @@ def get_technical_document(author: str) -> Optional[dict]:
         return dict(row) if row else None
 
 
+def list_admin_qualifier_participants() -> list[dict]:
+    """按参赛者聚合 AI、入围结果、评测任务和技术文档。"""
+    with _conn() as c:
+        authors = [row["author"] for row in c.execute("""
+            SELECT author FROM (
+                SELECT author FROM ais
+                UNION SELECT author FROM qualifications
+                UNION SELECT author FROM technical_documents
+                UNION SELECT author FROM competition_jobs WHERE kind='qualifier'
+            )
+            WHERE author LIKE 'contest-%'
+            ORDER BY author
+        """).fetchall()]
+        participants = []
+        for author in authors:
+            profile = c.execute(
+                "SELECT display_name FROM user_profiles WHERE author=?", (author,)
+            ).fetchone()
+            ais = [dict(row) for row in c.execute("""
+                SELECT id, name, display, created_at, upload_count, is_public
+                FROM ais WHERE author=? ORDER BY created_at DESC
+            """, (author,)).fetchall()]
+            qualifications = [dict(row) for row in c.execute("""
+                SELECT login, jaccount, ai_id, ai_name, qualified,
+                       baseline_wins, baseline_losses, baseline_draws,
+                       hunter_wins, hunter_losses, hunter_draws, evaluated_at
+                FROM qualifications WHERE author=? ORDER BY evaluated_at DESC
+            """, (author,)).fetchall()]
+            document_row = c.execute(
+                "SELECT * FROM technical_documents WHERE author=?", (author,)
+            ).fetchone()
+            document = dict(document_row) if document_row else None
+            job_rows = c.execute("""
+                SELECT * FROM competition_jobs
+                WHERE author=? AND kind='qualifier'
+                ORDER BY created_at DESC LIMIT 10
+            """, (author,)).fetchall()
+            jobs = [_competition_dict(row) for row in job_rows]
+            identity = (qualifications[0] if qualifications else None) or document
+            if identity is None and jobs:
+                identity = jobs[0]
+            participants.append({
+                "participant_id": author,
+                "name": profile["display_name"] if profile else "",
+                "login": identity.get("login", "") if identity else "",
+                "jaccount": identity.get("jaccount", "") if identity else "",
+                "ais": ais,
+                "qualifications": qualifications,
+                "qualified": any(row["qualified"] for row in qualifications),
+                "technical_document": document,
+                "qualifier_jobs": jobs,
+            })
+        return participants
+
+
 # --- 房间 ---------------------------------------------------------------
 
 def create_room(creator_token: str) -> dict:

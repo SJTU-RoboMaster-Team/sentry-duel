@@ -51,7 +51,7 @@ from store import (
     create_competition_job, create_competition_jobs,
     get_competition_job, list_competition_jobs,
     delete_ai, gen_author_token, get_ai, get_ai_by_author_name,
-    get_technical_document,
+    get_technical_document, list_admin_qualifier_participants,
     is_author_qualified, list_ais_for_author, list_public_ais, list_selectable_ais,
     qualified_user_count, record_ai, record_technical_document, set_ai_public,
     update_competition_job, upsert_qualification, upsert_user_profile,
@@ -156,6 +156,19 @@ async def _contest_user(request: Request) -> dict:
 
 def _user_author(user: dict) -> str:
     return sanitize_author(f"contest-{user['id']}")
+
+
+def _is_admin_user(user: dict) -> bool:
+    configured = os.environ.get("SENTRY_DUEL_ADMIN_JACCOUNTS", "")
+    allowed = {item.strip().casefold() for item in configured.split(",") if item.strip()}
+    return bool(allowed and str(user.get("jaccount") or "").casefold() in allowed)
+
+
+async def _require_admin(request: Request) -> dict:
+    user = await _contest_user(request)
+    if not _is_admin_user(user):
+        raise HTTPException(403, "仅赛事管理员可访问")
+    return user
 
 
 # ---- 兼容旧 API: 内置 AI + uploaded AI 全列 ----
@@ -499,6 +512,7 @@ async def api_me(request: Request):
         "jaccount": user["jaccount"],
         "name": user.get("name") or user["login"],
         "display": user.get("name") or user["login"],
+        "is_admin": _is_admin_user(user),
     }
 
 
@@ -898,6 +912,79 @@ async def qualifiers(request: Request):
             if job["total_games"] == 100
         ],
     }
+
+
+@app.get("/api/admin/qualifiers")
+async def admin_qualifiers(request: Request):
+    await _require_admin(request)
+    participants = []
+    for item in list_admin_qualifier_participants():
+        qualifications = []
+        for result in item["qualifications"]:
+            qualifications.append({
+                **result,
+                "qualified": bool(result["qualified"]),
+            })
+        jobs = []
+        for job in item["qualifier_jobs"]:
+            details = job.get("details") or {}
+            jobs.append({
+                "id": job["id"],
+                "status": job["status"],
+                "benchmark": details.get("benchmark", ""),
+                "ai_name": job["ai_a_name"],
+                "completed_games": job["completed_games"],
+                "total_games": job["total_games"],
+                "ai_wins": job["ai_a_wins"],
+                "opponent_wins": job["ai_b_wins"],
+                "draws": job["draws"],
+                "error": job["error"],
+                "created_at": job["created_at"],
+            })
+        document = _technical_document_metadata(item["technical_document"])
+        participants.append({
+            "participant_id": item["participant_id"],
+            "name": item["name"] or item["login"] or "未知选手",
+            "login": item["login"],
+            "jaccount": item["jaccount"],
+            "qualified": item["qualified"],
+            "ais": [
+                {**ai, "is_public": bool(ai["is_public"])}
+                for ai in item["ais"]
+            ],
+            "qualifications": qualifications,
+            "technical_document": document,
+            "qualifier_jobs": jobs,
+        })
+    return {
+        "summary": {
+            "participants": len(participants),
+            "evaluated": sum(bool(item["qualifications"]) for item in participants),
+            "qualified": sum(item["qualified"] for item in participants),
+            "documents": sum(item["technical_document"] is not None for item in participants),
+        },
+        "participants": participants,
+    }
+
+
+@app.get("/api/admin/technical-documents/{participant_id}/download")
+async def admin_download_technical_document(participant_id: str,
+                                            request: Request):
+    await _require_admin(request)
+    try:
+        author = sanitize_author(participant_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    document = get_technical_document(author)
+    if not document:
+        raise HTTPException(404, "该选手尚未上传技术文档")
+    path = Path(document["stored_path"]).resolve()
+    if not path.is_relative_to(TECHNICAL_DOCS_DIR.resolve()) or not path.is_file():
+        raise HTTPException(404, "技术文档文件不存在")
+    return FileResponse(
+        path, media_type=document["media_type"],
+        filename=document["original_name"],
+    )
 
 
 @app.delete("/api/my-ais/{ai_name}")
