@@ -89,15 +89,6 @@ def test_private_ai_is_owner_only_until_published(client):
     )
     assert denied.status_code == 404
 
-    room = client.post("/api/rooms", headers=_headers("other")).json()
-    denied = client.post(
-        f"/api/rooms/{room['code']}/bind",
-        data={"side": "red", "upload_token": room["creator_token"], "ai_id": ref},
-        headers=_headers("other"),
-    )
-    assert denied.status_code == 400
-    assert "未公开" in denied.json()["detail"]
-
     denied = client.patch(
         f"/api/my-ais/{ai['id']}/visibility",
         json={"is_public": True},
@@ -134,13 +125,6 @@ def test_private_ai_is_owner_only_until_published(client):
     assert source.status_code == 200
     assert source.content == b"// private source"
 
-    bound = client.post(
-        f"/api/rooms/{room['code']}/bind",
-        data={"side": "red", "upload_token": room["creator_token"], "ai_id": ref},
-        headers=_headers("other"),
-    )
-    assert bound.status_code == 200
-
     hidden = client.patch(
         f"/api/my-ais/{ai['id']}/visibility",
         json={"is_public": False},
@@ -152,19 +136,6 @@ def test_private_ai_is_owner_only_until_published(client):
     ).status_code == 404
     other_choices = client.get("/api/ais", headers=_headers("other")).json()["ais"]
     assert ref not in {item["name"] for item in other_choices}
-
-    owner_room = client.post("/api/rooms", headers=_headers("owner")).json()
-    owner_bind = client.post(
-        f"/api/rooms/{owner_room['code']}/bind",
-        data={
-            "side": "red",
-            "upload_token": owner_room["creator_token"],
-            "ai_id": ref,
-        },
-        headers=_headers("owner"),
-    )
-    assert owner_bind.status_code == 200
-
 
 def test_public_package_download_contains_complete_source(client):
     ai = _record_ai("contest-pack-owner", "public-package")

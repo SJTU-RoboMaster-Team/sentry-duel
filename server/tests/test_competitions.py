@@ -108,7 +108,7 @@ def test_balanced_series_maps_scores_back_to_ai(monkeypatch, tmp_path):
     }
 
 
-def test_formal_competition_uses_game_wins_and_enforces_access(
+def test_batch_competition_uses_game_wins_and_enforces_access(
         client, monkeypatch):
     own_a = _record_ai("owner", "formal-a")
     own_b = _record_ai("owner", "formal-b")
@@ -123,7 +123,7 @@ def test_formal_competition_uses_game_wins_and_enforces_access(
     ref_a = f"uploaded/{own_a['author']}/{own_a['name']}.so"
     ref_b = f"uploaded/{own_b['author']}/{own_b['name']}.so"
     response = client.post(
-        "/api/competitions/formal", headers=_headers(),
+        "/api/competitions/batch", headers=_headers(),
         json={"ai_a": ref_a, "ai_b": ref_b},
     )
     assert response.status_code == 200, response.text
@@ -134,7 +134,7 @@ def test_formal_competition_uses_game_wins_and_enforces_access(
 
     private_ref = f"uploaded/{private['author']}/{private['name']}.so"
     denied = client.post(
-        "/api/competitions/formal", headers=_headers(),
+        "/api/competitions/batch", headers=_headers(),
         json={"ai_a": ref_a, "ai_b": private_ref},
     )
     assert denied.status_code == 404

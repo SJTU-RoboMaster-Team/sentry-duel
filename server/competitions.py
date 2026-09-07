@@ -1,4 +1,4 @@
-"""Batch match execution for formal matches and qualifiers."""
+"""Batch match execution for batch tests, leaderboard and qualifiers."""
 from __future__ import annotations
 
 import json

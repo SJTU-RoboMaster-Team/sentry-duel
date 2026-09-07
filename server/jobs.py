@@ -18,7 +18,7 @@ from typing import Optional
 PROJECT_DIR = Path(__file__).parent.parent.resolve()
 ENGINE_BIN = PROJECT_DIR / "engine" / "build" / "runner"
 HUMAN_ENGINE_BIN = PROJECT_DIR / "engine" / "build" / "human_runner"
-# 数据目录统一从 store 拿,确保和 rooms.py 一致
+# 数据目录统一从 store 获取。
 from store import REPLAYS_DIR, UPLOADS_DIR as UPLOAD_DIR
 
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>哨兵大战 - 实时观战</title>
-  <link rel="stylesheet" href="static/style.css?v=20260907-admin">
+  <link rel="stylesheet" href="static/style.css?v=20260907-leaderboard">
   <link rel="icon" href="static/favicon.ico">
   <script type="importmap">
     {
@@ -44,13 +44,11 @@
       <button class="view-tab active" data-view="rules-view">规则介绍</button>
       <button class="view-tab" data-view="arena-view">对局指挥台</button>
       <button class="view-tab human-tab" data-view="human-view"><span class="human-tab-mark"></span>人机模式</button>
-      <button class="view-tab" data-view="room-view">多人房间</button>
       <button class="view-tab" data-view="code-view">AI 代码库</button>
-      <button class="view-tab" data-view="public-ai-view">已公开 AI</button>
-      <button class="view-tab" data-view="formal-view">正式比赛</button>
+      <button class="view-tab" data-view="leaderboard-view">AI 排行榜</button>
+      <button class="view-tab" data-view="formal-view">批量测试</button>
       <button class="view-tab" data-view="qualifier-view">入围赛</button>
       <button id="admin-tab" class="view-tab" data-view="admin-view" hidden>赛事后台</button>
-      <button class="view-tab" data-view="docs-view">开发文档</button>
       <a class="view-tab view-external-link" href="https://jiaoloong.sjtu.edu.cn/" target="_blank" rel="noopener noreferrer">交龙官网</a>
     </nav>
     <div class="controls">
@@ -117,6 +115,14 @@
         <span class="opensource-link-mark">GH</span>
         <span><strong>访问 GitHub 仓库</strong><small>查看构建、本地运行与 RL 训练说明</small></span>
       </a>
+    </section>
+    <section class="qq-group-panel" aria-labelledby="qq-group-title">
+      <div>
+        <p class="eyebrow">COMMUNITY</p>
+        <h3 id="qq-group-title">比赛 QQ 群</h3>
+        <p>群号 1106026473</p>
+      </div>
+      <img src="assets/QR.png" alt="第九届机甲大师赛校内赛 QQ 群二维码">
     </section>
   </section>
 
@@ -191,31 +197,51 @@
       </div>
       <div id="my-ai-list" class="my-ai-list"><span class="upload-hint">登录后查看</span></div>
       <p class="my-ai-hint">
-        公开源码后,任何人都可在「已公开 AI」页下载源码包;私有 AI 仅可对战,代码不外泄。
+        公开源码后，其他选手可在下方下载源码包；私有 AI 仅可对战，代码不外泄。
       </p>
     </section>
-  </section>
-
-  <section id="public-ai-view" class="app-view work-view" hidden>
-    <div class="view-heading">
-      <div><p class="eyebrow">PUBLIC BUILDS</p><h2 id="public-ai-title">已公开 AI</h2></div>
-    </div>
     <section class="my-ai-panel" aria-labelledby="public-ai-title">
       <div class="my-ai-heading">
-        <div><p class="eyebrow">SOURCE ARCHIVE</p><h3>公开源码</h3></div>
+        <div><p class="eyebrow">SOURCE ARCHIVE</p><h3 id="public-ai-title">已公开 AI</h3></div>
       </div>
       <div id="public-ai-list" class="my-ai-list"><span class="upload-hint">正在加载...</span></div>
     </section>
   </section>
 
+  <section id="leaderboard-view" class="app-view work-view leaderboard-view" hidden>
+    <div class="view-heading">
+      <div><p class="eyebrow">AI LEADERBOARD</p><h2>AI 排行榜</h2></div>
+      <p>每个账号只保留一个榜位，24 小时最多提交 3 次；每次与榜内所有 AI 各进行 20 局平衡对战。</p>
+    </div>
+    <section class="competition-panel leaderboard-submit" aria-labelledby="leaderboard-submit-title">
+      <div class="competition-controls">
+        <h3 id="leaderboard-submit-title">提交打榜</h3>
+        <label><span>我的 AI</span><select id="leaderboard-ai"><option value="">请选择</option></select></label>
+        <label class="visibility-toggle"><input id="leaderboard-open-source" type="checkbox">公开本次打榜源码</label>
+        <button id="leaderboard-submit" class="primary">开始打榜</button>
+        <span id="leaderboard-submit-status" class="upload-hint"></span>
+      </div>
+      <div class="leaderboard-meta">
+        <span>动态榜单</span>
+        <small id="leaderboard-snapshot">每日榜单尚未生成</small>
+      </div>
+    </section>
+    <div class="leaderboard-table-wrap">
+      <table class="leaderboard-table">
+        <thead><tr><th>排名</th><th>AI</th><th>选手</th><th>综合得分率</th><th>胜 / 负 / 平</th><th>对手</th><th>源码</th><th>更新时间</th></tr></thead>
+        <tbody id="leaderboard-list"><tr><td colspan="8">正在加载...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
   <section id="formal-view" class="app-view work-view" hidden>
     <div class="view-heading">
-      <div><p class="eyebrow">OFFICIAL SERIES</p><h2>正式比赛</h2></div>
-      <p>双方各执红方 50 局，共 100 局；获胜局数较多者赢得系列赛。</p>
+      <div><p class="eyebrow">BATCH TEST</p><h2>批量测试</h2></div>
+      <p>选择两个可见 AI，双方各执红方 50 局，共运行 100 局并汇总胜负。</p>
     </div>
     <section class="competition-panel" aria-labelledby="formal-controls-title">
       <div class="competition-controls">
-        <h3 id="formal-controls-title">创建比赛</h3>
+        <h3 id="formal-controls-title">创建测试</h3>
         <label><span>AI A</span><select id="formal-ai-a"></select></label>
         <span class="versus">VS</span>
         <label><span>AI B</span><select id="formal-ai-b"></select></label>
@@ -275,146 +301,6 @@
       </table>
     </div>
     <p id="admin-status" class="upload-hint"></p>
-  </section>
-
-  <section id="docs-view" class="app-view work-view" hidden>
-    <div class="view-heading">
-      <div><p class="eyebrow">DEVELOPER DOCS</p><h2>开发文档</h2></div>
-      <p>下载比赛规则与 AI 接口规范，完成代码后可在 AI 代码库中编译提交。</p>
-    </div>
-    <div class="docs-download-panel">
-      <a class="docs-download-button rules-doc" href="downloads/rules.md" download>
-        <span class="docs-button-mark">RULES</span>
-        <span><strong>下载规则</strong><small>比赛地图、回合、视野与得分约束</small></span>
-      </a>
-      <a class="docs-download-button api-doc" href="downloads/api.md" download>
-        <span class="docs-button-mark">API</span>
-        <span><strong>下载 API</strong><small>C++ 数据结构、行动函数与编译接口</small></span>
-      </a>
-    </div>
-    <section class="qq-group-panel" aria-labelledby="qq-group-title">
-      <div>
-        <p class="eyebrow">COMMUNITY</p>
-        <h3 id="qq-group-title">比赛 QQ 群</h3>
-        <p>群号 1106026473</p>
-      </div>
-      <img src="assets/QR.png" alt="第九届机甲大师赛校内赛 QQ 群二维码">
-    </section>
-  </section>
-
-  <section id="room-view" class="app-view work-view" hidden>
-    <div class="view-heading">
-      <div><p class="eyebrow">PRIVATE MATCH</p><h2>创建或加入房间</h2></div>
-      <p>房主固定红方，对手通过 6 位房间码加入蓝方。双方上传后由房主启动对局。</p>
-    </div>
-    <div class="room-shell">
-      <div class="room-tabs">
-          <button id="tab-create" class="active"><span class="room-mark red-mark"></span>创建房间</button>
-          <button id="tab-join"><span class="room-mark blue-mark"></span>加入房间</button>
-      </div>
-      <div class="room-body">
-
-        <!-- 创建房间面板 -->
-        <div id="create-pane" class="room-pane">
-          <p>创建一个房间,得到一个 6 位房间码。<strong>红方(你)</strong>先提交 AI,蓝方加入后提交 AI 即可开赛。</p>
-          <button id="create-room-btn">创建房间</button>
-          <div id="create-result" hidden>
-            <p>房间码: <code id="room-code-display"></code>
-               <button id="copy-code">复制</button>
-            </p>
-            <p>把房间码发给对手,或同一浏览器两个 tab 测。</p>
-            <div class="upload-row">
-              <label class="team-select red-select"><span class="team-swatch"></span>选择 slot: <select id="create-side"><option value="red">红方(我)</option></select></label>
-              <label>已有 AI: <select id="create-existing-ai"><option value="">请选择</option></select></label>
-              <button id="create-bind-ai-btn">绑定已有 AI</button>
-              <label>选手名: <input id="room-ai-name" type="text" placeholder="my_ai" maxlength="64"></label>
-              <button id="room-upload-btn">上传并绑定到房间</button>
-              <span id="room-upload-status"></span>
-            </div>
-            <textarea id="room-ai-source" spellcheck="false" placeholder="// AI 源码..."></textarea>
-            <div class="upload-tpl">
-              <button data-tpl="random">随机模板</button>
-              <button data-tpl="reactive">反应式模板</button>
-              <button data-tpl="baseline">占点模板</button>
-            </div>
-            <div class="upload-row">
-              <label>源码包: <input id="room-pack-file" type="file" accept=".zip,.tar,.tar.gz,.tgz"></label>
-              <button id="room-pack-btn">上传源码包并绑定</button>
-              <span class="upload-hint">zip/tar.gz ≤20MB;有 Makefile 用 Makefile,否则编译全部 .cpp</span>
-              <details class="pack-info">
-                <summary>ⓘ 源码包格式说明</summary>
-                <div class="pack-info-body">
-                  <ul>
-                    <li>支持 <code>.zip</code> / <code>.tar</code> / <code>.tar.gz</code> / <code>.tgz</code>;压缩包 ≤20MB,文件数 ≤64,单文件 ≤8MB,解压后总量 ≤20MB。</li>
-                    <li>包内禁止符号链接、绝对路径和 <code>../</code> 越界路径,含此类条目会被直接拒绝。</li>
-                    <li>源码可放在包根,或外层只套一层目录(自动向下定位项目根,最多两层)。</li>
-                    <li>项目根有 <code>Makefile</code> 时执行 <code>make</code>:必须把 <code>.so</code> 产出到项目根目录;Makefile 内可使用环境变量 <code>$(ENGINE_INCLUDE)</code> 和 <code>$(ENGINE_LIB_DIR)</code>。</li>
-                    <li>没有 <code>Makefile</code> 时,用标准命令编译项目根那一层的全部 <code>.cpp</code>(更深层子目录的源码不参与编译)。</li>
-                    <li>主源码优先取 <code>my_ai.cpp</code>,它决定 AI 列表中展示的源码。</li>
-                    <li>编译限时 120 秒;失败会返回编译器输出,房间状态不受影响,修正后可重新上传。</li>
-                  </ul>
-                </div>
-              </details>
-            </div>
-            <button class="start-room-match" disabled>等待蓝方上传...</button>
-            <p id="create-game-fallback" class="room-game-fallback" hidden>
-              对局 ID: <code id="create-game-id"></code>
-              <button id="create-connect-game">连接对局</button>
-            </p>
-          </div>
-        </div>
-
-        <!-- 加入房间面板 -->
-        <div id="join-pane" class="room-pane" hidden>
-          <p>输入对手给你的 6 位房间码加入,绑定为蓝方。</p>
-          <div class="upload-row">
-            <label>房间码: <input id="join-code" type="text" placeholder="ABC123" maxlength="6"></label>
-            <button id="join-room-btn">加入</button>
-            <span id="join-status"></span>
-          </div>
-          <div id="join-result" hidden>
-            <div class="upload-row">
-              <label class="team-select blue-select"><span class="team-swatch"></span>选择 slot: <select id="join-side"><option value="blue">蓝方(我)</option></select></label>
-              <label>已有 AI: <select id="join-existing-ai"><option value="">请选择</option></select></label>
-              <button id="join-bind-ai-btn">绑定已有 AI</button>
-              <label>选手名: <input id="join-ai-name" type="text" placeholder="my_ai" maxlength="64"></label>
-              <button id="join-upload-btn">上传并绑定到房间</button>
-              <span id="join-upload-status"></span>
-            </div>
-            <textarea id="join-ai-source" spellcheck="false" placeholder="// AI 源码..."></textarea>
-            <div class="upload-tpl">
-              <button data-tpl="random">随机模板</button>
-              <button data-tpl="reactive">反应式模板</button>
-              <button data-tpl="baseline">占点模板</button>
-            </div>
-            <div class="upload-row">
-              <label>源码包: <input id="join-pack-file" type="file" accept=".zip,.tar,.tar.gz,.tgz"></label>
-              <button id="join-pack-btn">上传源码包并绑定</button>
-              <span class="upload-hint">zip/tar.gz ≤20MB;有 Makefile 用 Makefile,否则编译全部 .cpp</span>
-              <details class="pack-info">
-                <summary>ⓘ 源码包格式说明</summary>
-                <div class="pack-info-body">
-                  <ul>
-                    <li>支持 <code>.zip</code> / <code>.tar</code> / <code>.tar.gz</code> / <code>.tgz</code>;压缩包 ≤20MB,文件数 ≤64,单文件 ≤8MB,解压后总量 ≤20MB。</li>
-                    <li>包内禁止符号链接、绝对路径和 <code>../</code> 越界路径,含此类条目会被直接拒绝。</li>
-                    <li>源码可放在包根,或外层只套一层目录(自动向下定位项目根,最多两层)。</li>
-                    <li>项目根有 <code>Makefile</code> 时执行 <code>make</code>:必须把 <code>.so</code> 产出到项目根目录;Makefile 内可使用环境变量 <code>$(ENGINE_INCLUDE)</code> 和 <code>$(ENGINE_LIB_DIR)</code>。</li>
-                    <li>没有 <code>Makefile</code> 时,用标准命令编译项目根那一层的全部 <code>.cpp</code>(更深层子目录的源码不参与编译)。</li>
-                    <li>主源码优先取 <code>my_ai.cpp</code>,它决定 AI 列表中展示的源码。</li>
-                    <li>编译限时 120 秒;失败会返回编译器输出,房间状态不受影响,修正后可重新上传。</li>
-                  </ul>
-                </div>
-              </details>
-            </div>
-            <button class="start-room-match" disabled>等待房主开赛...</button>
-            <p id="join-game-fallback" class="room-game-fallback" hidden>
-              对局 ID: <code id="join-game-id"></code>
-              <button id="join-connect-game">连接对局</button>
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
   </section>
 
   <main id="arena-view" class="app-view" hidden>
@@ -516,8 +402,12 @@
     viewTabs.forEach(tab => tab.onclick = () => {
       const wasHumanMode = humanModeActive;
       activateView(tab.dataset.view);
-      if (tab.dataset.view === 'code-view') { refreshMyAis(); refreshUserChip(); }
-      if (tab.dataset.view === 'public-ai-view') refreshPublicAis();
+      if (tab.dataset.view === 'code-view') {
+        refreshMyAis();
+        refreshPublicAis();
+        refreshUserChip();
+      }
+      if (tab.dataset.view === 'leaderboard-view') refreshLeaderboard();
       if (tab.dataset.view === 'formal-view') refreshFormalCompetitions();
       if (tab.dataset.view === 'qualifier-view') refreshQualifiers();
       if (tab.dataset.view === 'admin-view') refreshAdminOverview();
@@ -1106,22 +996,6 @@
       }
     }
 
-    function populateRoomAiSelects(ais) {
-      for (const id of ['create-existing-ai', 'join-existing-ai']) {
-        const select = document.getElementById(id);
-        if (!select) continue;
-        const previous = select.value;
-        select.innerHTML = '<option value="">请选择</option>';
-        for (const ai of ais) {
-          const option = document.createElement('option');
-          option.value = ai.name;
-          option.textContent = ai.display;
-          select.appendChild(option);
-        }
-        if (ais.some(ai => ai.name === previous)) select.value = previous;
-      }
-    }
-
     async function runMatch() {
       if (!redAiSelect.value || !blueAiSelect.value) {
         setStatus('请选择红蓝双方 AI', 'err');
@@ -1383,7 +1257,6 @@ extern "C" void act(const Board& board, char my_color) {
       try {
         const resp = await fetch(`${apiBase}/ais`);
         const data = await resp.json();
-        populateRoomAiSelects(data.ais || []);
         populateFormalAiSelects(data.ais || []);
         const prevRed = redAiSelect.value;
         const prevBlue = blueAiSelect.value;
@@ -1566,11 +1439,11 @@ extern "C" void act(const Board& board, char my_color) {
     async function refreshFormalCompetitions() {
       const list = document.getElementById('formal-jobs');
       try {
-        const response = await fetch(`${apiBase}/competitions/formal`);
+        const response = await fetch(`${apiBase}/competitions/batch`);
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || '无法读取正式比赛');
+        if (!response.ok) throw new Error(data.detail || '无法读取批量测试');
         list.replaceChildren();
-        if (!data.jobs.length) list.innerHTML = '<span class="upload-hint">暂无正式比赛</span>';
+        if (!data.jobs.length) list.innerHTML = '<span class="upload-hint">暂无批量测试</span>';
         data.jobs.forEach(job => list.appendChild(makeJobRow(job)));
         formalHasActiveJobs = data.jobs.some(job => ['pending', 'running'].includes(job.status));
       } catch (error) {
@@ -1588,7 +1461,7 @@ extern "C" void act(const Board& board, char my_color) {
       status.textContent = '正在创建...';
       status.className = 'pending';
       try {
-        const response = await fetch(`${apiBase}/competitions/formal`, {
+        const response = await fetch(`${apiBase}/competitions/batch`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ai_a: aiA, ai_b: aiB }),
         });
@@ -1602,6 +1475,143 @@ extern "C" void act(const Board& board, char my_color) {
         status.textContent = error.message;
         status.className = 'err';
       } finally {
+        button.disabled = false;
+      }
+    };
+
+    let leaderboardHasActiveSubmission = false;
+
+    function leaderboardSubmissionText(submission) {
+      if (!submission) return '';
+      if (submission.status === 'pending') return '等待评测启动';
+      if (submission.status === 'running') {
+        return `正在评测 ${submission.completed_opponents}/${submission.total_opponents} 个对手`;
+      }
+      if (submission.status === 'failed') return `打榜失败：${submission.error || '未知错误'}`;
+      return `打榜完成 · ${new Date(submission.ended_at * 1000).toLocaleString()}`;
+    }
+
+    function renderLeaderboard(data) {
+      const body = document.getElementById('leaderboard-list');
+      body.replaceChildren();
+      if (!data.standings.length) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 8;
+        cell.textContent = '暂无榜单记录，首位提交者将直接进入榜单';
+        row.appendChild(cell);
+        body.appendChild(row);
+      }
+      for (const entry of data.standings) {
+        const row = document.createElement('tr');
+        if (entry.ai_id === data.my_entry_ai_id) row.className = 'leaderboard-mine';
+        const values = [
+          entry.rank,
+          `${entry.ai_name} · ${entry.public_id}`,
+          entry.owner_name,
+          entry.score_rate === null ? '待对战' : `${(entry.score_rate * 100).toFixed(1)}%`,
+          `${entry.wins} / ${entry.losses} / ${entry.draws}`,
+          `${entry.opponents} 个`,
+        ];
+        for (const value of values) {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          row.appendChild(cell);
+        }
+        const sourceCell = document.createElement('td');
+        if (entry.is_open_source) {
+          const source = document.createElement('a');
+          source.className = 'source-download';
+          source.href = `${apiBase}/leaderboard/entries/${entry.ai_id}/source`;
+          source.download = '';
+          source.textContent = '已开源 · 下载';
+          sourceCell.appendChild(source);
+        } else {
+          const badge = document.createElement('span');
+          badge.className = 'source-badge source-closed';
+          badge.textContent = '未开源';
+          sourceCell.appendChild(badge);
+        }
+        row.appendChild(sourceCell);
+        const updated = document.createElement('td');
+        updated.textContent = new Date(entry.ranked_at * 1000).toLocaleString();
+        row.appendChild(updated);
+        body.appendChild(row);
+      }
+
+      const snapshot = document.getElementById('leaderboard-snapshot');
+      snapshot.textContent = data.latest_snapshot
+        ? `官方日榜：${data.latest_snapshot.date}`
+        : '每日榜单尚未生成';
+      const submission = data.my_submission;
+      const status = document.getElementById('leaderboard-submit-status');
+      const button = document.getElementById('leaderboard-submit');
+      leaderboardHasActiveSubmission = Boolean(
+        submission && ['pending', 'running'].includes(submission.status)
+      );
+      button.disabled = leaderboardHasActiveSubmission;
+      status.textContent = leaderboardSubmissionText(submission);
+      status.className = `upload-hint ${submission?.status === 'failed' ? 'err' : submission?.status === 'done' ? 'ok' : submission ? 'pending' : ''}`;
+    }
+
+    async function refreshLeaderboard(refreshMine = true) {
+      const select = document.getElementById('leaderboard-ai');
+      const previous = select.value;
+      try {
+        const mineRequest = refreshMine ? fetch(`${apiBase}/my-ais`) : null;
+        const leaderboardResponse = await fetch(`${apiBase}/leaderboard`);
+        const mineResponse = mineRequest ? await mineRequest : null;
+        const mine = mineResponse ? await mineResponse.json() : null;
+        const data = await leaderboardResponse.json();
+        if (mineResponse && !mineResponse.ok) throw new Error(mine.detail || '无法读取我的 AI');
+        if (!leaderboardResponse.ok) throw new Error(data.detail || '无法读取排行榜');
+        if (mine) {
+          select.innerHTML = '<option value="">请选择</option>';
+          for (const ai of mine.ais) {
+            const option = document.createElement('option');
+            option.value = ai.ai_id;
+            option.textContent = `${ai.display || ai.name} · AI-${String(ai.ai_id).padStart(4, '0')}`;
+            select.appendChild(option);
+          }
+          if (mine.ais.some(ai => String(ai.ai_id) === previous)) select.value = previous;
+        }
+        renderLeaderboard(data);
+      } catch (error) {
+        const body = document.getElementById('leaderboard-list');
+        body.innerHTML = '<tr><td colspan="8" class="err"></td></tr>';
+        body.querySelector('td').textContent = error.message;
+      }
+    }
+
+    document.getElementById('leaderboard-submit').onclick = async () => {
+      const button = document.getElementById('leaderboard-submit');
+      const status = document.getElementById('leaderboard-submit-status');
+      const aiId = Number(document.getElementById('leaderboard-ai').value);
+      if (!aiId) {
+        status.textContent = '请选择本人上传的 AI';
+        status.className = 'upload-hint err';
+        return;
+      }
+      button.disabled = true;
+      status.textContent = '正在创建排行榜评测...';
+      status.className = 'upload-hint pending';
+      try {
+        const response = await fetch(`${apiBase}/leaderboard/submissions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ai_id: aiId,
+            is_open_source: document.getElementById('leaderboard-open-source').checked,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '提交失败');
+        leaderboardHasActiveSubmission = true;
+        status.textContent = leaderboardSubmissionText(data);
+        await refreshLeaderboard(false);
+      } catch (error) {
+        status.textContent = error.message;
+        status.className = 'upload-hint err';
         button.disabled = false;
       }
     };
@@ -1730,7 +1740,7 @@ extern "C" void act(const Board& board, char my_color) {
         const resp = await fetch(`${apiBase}/my-ais`);
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || '无法读取');
-        account.textContent = data.jaccount ? `JAccount: ${data.jaccount}` : '';
+        account.textContent = `共 ${data.ais.length} 个 AI`;
         list.innerHTML = '';
         if (!data.ais.length) {
           list.innerHTML = '<span class="upload-hint">还没有提交的 AI</span>';
@@ -1940,7 +1950,7 @@ extern "C" void act(const Board& board, char my_color) {
         name.textContent = data.display || data.login || '已登录';
         updateAdminAccess(Boolean(data.is_admin));
         chip.classList.remove('user-chip-anon');
-        chip.title = `${data.login || ''}${data.jaccount ? ' · ' + data.jaccount : ''}`;
+        chip.title = data.display || data.login || '已登录';
         chip.onclick = null;
       } catch (err) {
         updateAdminAccess(false);
@@ -1953,12 +1963,13 @@ extern "C" void act(const Board& board, char my_color) {
     refreshUserChip();
     refreshMyAis();
     refreshPublicAis();
+    refreshLeaderboard();
     refreshFormalCompetitions();
     refreshQualifiers();
     setInterval(() => {
       refreshUserChip();
       refreshMyAis();
-      if (document.querySelector('[data-view="public-ai-view"]').classList.contains('active')) {
+      if (document.querySelector('[data-view="code-view"]').classList.contains('active')) {
         refreshPublicAis();
       }
     }, 5000);
@@ -1969,326 +1980,11 @@ extern "C" void act(const Board& board, char my_color) {
       if (qualifierHasActiveJobs && document.querySelector('[data-view="qualifier-view"]').classList.contains('active')) {
         refreshQualifiers(false);
       }
+      if (leaderboardHasActiveSubmission && document.querySelector('[data-view="leaderboard-view"]').classList.contains('active')) {
+        refreshLeaderboard(false);
+      }
     }, 500);
 
-    // ===== 房间 =====
-    // 持久化 token(避免刷新页面就丢身份)
-    function getAuthorToken() {
-      let t = localStorage.getItem('author_token');
-      if (!t) {
-        // 用 crypto 生成 16 字符
-        const arr = new Uint8Array(8);
-        crypto.getRandomValues(arr);
-        t = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
-        localStorage.setItem('author_token', t);
-      }
-      return t;
-    }
-    function getRoomToken(code) {
-      // 房间 token 单独存(防止一个浏览器开多房间 token 串)
-      return sessionStorage.getItem('room_token_' + code) || '';
-    }
-    function setRoomToken(code, tok) {
-      sessionStorage.setItem('room_token_' + code, tok);
-    }
-
-    const tabCreate = document.getElementById('tab-create');
-    const tabJoin = document.getElementById('tab-join');
-    const createPane = document.getElementById('create-pane');
-    const joinPane = document.getElementById('join-pane');
-    tabCreate.onclick = () => {
-      tabCreate.classList.add('active'); tabJoin.classList.remove('active');
-      createPane.hidden = false; joinPane.hidden = true;
-    };
-    tabJoin.onclick = () => {
-      tabJoin.classList.add('active'); tabCreate.classList.remove('active');
-      joinPane.hidden = false; createPane.hidden = true;
-    };
-
-    const createBtn = document.getElementById('create-room-btn');
-    const createResult = document.getElementById('create-result');
-    const codeDisplay = document.getElementById('room-code-display');
-    async function copyRoomCode() {
-      const code = codeDisplay.textContent.trim();
-      if (!code) {
-        setStatus('暂无房间码', 'err');
-        return;
-      }
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(code);
-        } else {
-          throw new Error('clipboard unavailable');
-        }
-        setStatus('房间码已复制', 'ok');
-        return;
-      } catch (_) {
-        const input = document.createElement('textarea');
-        input.value = code;
-        input.setAttribute('readonly', '');
-        input.style.position = 'fixed';
-        input.style.left = '-9999px';
-        document.body.appendChild(input);
-        input.focus();
-        input.select();
-        input.setSelectionRange(0, input.value.length);
-        let copied = false;
-        try { copied = document.execCommand('copy'); } catch (_) {}
-        input.remove();
-        setStatus(copied ? '房间码已复制' : '复制失败，请手动选择房间码', copied ? 'ok' : 'err');
-      }
-    }
-    document.getElementById('copy-code').onclick = copyRoomCode;
-
-    let currentRoom = null;  // {code, creator_token}
-
-    createBtn.onclick = async () => {
-      createBtn.disabled = true;
-      try {
-        const r = await fetch(`${apiBase}/rooms`, { method: 'POST' });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.detail || '创建失败');
-        currentRoom = { code: d.code, token: d.creator_token, isCreator: true };
-        setRoomToken(d.code, d.creator_token);
-        codeDisplay.textContent = d.code;
-        createResult.hidden = false;
-        setStatus(`房间 ${d.code} 已创建`, 'ok');
-        startPollingRoom(d.code);
-      } catch (e) {
-        setStatus(`创建失败: ${e.message}`, 'err');
-      } finally {
-        createBtn.disabled = false;
-      }
-    };
-
-    const joinBtn = document.getElementById('join-room-btn');
-    const joinResult = document.getElementById('join-result');
-    const joinStatus = document.getElementById('join-status');
-    joinBtn.onclick = async () => {
-      const code = document.getElementById('join-code').value.trim().toUpperCase();
-      if (code.length !== 6) { joinStatus.textContent = '房间码 6 位'; joinStatus.className='err'; return; }
-      try {
-        const r = await fetch(`${apiBase}/rooms/${code}`);
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.detail || '房间不存在');
-        if (d.status === 'abandoned' || d.status === 'done') throw new Error('房间已结束');
-        if (d.red_slot && d.blue_slot) throw new Error('房间已满');
-        // 决定我方 side:已有 red 我就是 blue,否则我是 red
-        const mySide = d.red_slot ? 'blue' : 'red';
-        currentRoom = { code, token: getAuthorToken(), side: mySide, isCreator: false };
-        setRoomToken(code, currentRoom.token);
-        joinResult.hidden = false;
-        document.getElementById('join-side').value = mySide;
-        joinStatus.textContent = `已加入,你是${mySide === 'red' ? '红' : '蓝'}方`;
-        joinStatus.className = 'ok';
-        startPollingRoom(code);
-      } catch (e) {
-        joinStatus.textContent = e.message;
-        joinStatus.className = 'err';
-      }
-    };
-
-    async function uploadToRoom(side, name, source, statusEl, btn) {
-      if (!currentRoom) { statusEl.textContent = '先创建/加入房间'; statusEl.className='err'; return; }
-      btn.disabled = true; statusEl.textContent = '编译中...'; statusEl.className='pending';
-      try {
-        const body = new URLSearchParams({
-          side, upload_token: currentRoom.token,
-          name: name.trim(), source, display: name.trim(),
-        });
-        const r = await fetch(`${apiBase}/rooms/${currentRoom.code}/upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.detail || '上传失败');
-        statusEl.textContent = `✓ 已绑定: ${name}`;
-        statusEl.className = 'ok';
-      } catch (e) {
-        statusEl.textContent = `✗ ${e.message}`;
-        statusEl.className = 'err';
-      } finally {
-        btn.disabled = false;
-      }
-    }
-
-    document.getElementById('room-upload-btn').onclick = () => {
-      uploadToRoom('red',
-        document.getElementById('room-ai-name').value,
-        document.getElementById('room-ai-source').value,
-        document.getElementById('room-upload-status'),
-        document.getElementById('room-upload-btn'));
-    };
-    document.getElementById('join-upload-btn').onclick = () => {
-      uploadToRoom('blue',
-        document.getElementById('join-ai-name').value,
-        document.getElementById('join-ai-source').value,
-        document.getElementById('join-upload-status'),
-        document.getElementById('join-upload-btn'));
-    };
-
-    // ===== 房间源码包上传(zip/tar.gz) =====
-    async function uploadPackToRoom(side, name, file, statusEl, btn) {
-      if (!currentRoom) { statusEl.textContent = '先创建/加入房间'; statusEl.className='err'; return; }
-      if (!name.trim()) { statusEl.textContent = '请输入选手名'; statusEl.className='err'; return; }
-      if (!file) { statusEl.textContent = '请选择源码包(zip/tar.gz)'; statusEl.className='err'; return; }
-      btn.disabled = true; statusEl.textContent = '编译中...'; statusEl.className='pending';
-      try {
-        const fd = new FormData();
-        fd.append('side', side);
-        fd.append('upload_token', currentRoom.token);
-        fd.append('name', name.trim());
-        fd.append('display', name.trim());
-        fd.append('file', file);
-        const r = await fetch(`${apiBase}/rooms/${currentRoom.code}/upload_pack`, {
-          method: 'POST', body: fd,
-        });
-        const raw = await r.text();
-        let d;
-        try { d = raw ? JSON.parse(raw) : {}; }
-        catch (_) {
-          throw new Error(`服务器返回 ${r.status}: ${raw.slice(0, 240) || '空响应'}`);
-        }
-        if (!r.ok) throw new Error(d.detail || '上传失败');
-        statusEl.textContent = `✓ 源码包已绑定: ${name}`;
-        statusEl.className = 'ok';
-      } catch (e) {
-        statusEl.textContent = `✗ ${e.message}`;
-        statusEl.className = 'err';
-      } finally {
-        btn.disabled = false;
-      }
-    }
-
-    document.getElementById('room-pack-btn').onclick = () => {
-      uploadPackToRoom('red',
-        document.getElementById('room-ai-name').value,
-        document.getElementById('room-pack-file').files[0],
-        document.getElementById('room-upload-status'),
-        document.getElementById('room-pack-btn'));
-    };
-    document.getElementById('join-pack-btn').onclick = () => {
-      uploadPackToRoom('blue',
-        document.getElementById('join-ai-name').value,
-        document.getElementById('join-pack-file').files[0],
-        document.getElementById('join-upload-status'),
-        document.getElementById('join-pack-btn'));
-    };
-
-    async function bindExistingToRoom(side, aiId, statusEl, btn) {
-      if (!currentRoom) { statusEl.textContent = '先创建/加入房间'; statusEl.className = 'err'; return; }
-      if (!aiId) { statusEl.textContent = '请选择已有 AI'; statusEl.className = 'err'; return; }
-      btn.disabled = true; statusEl.textContent = '绑定中...'; statusEl.className = 'pending';
-      try {
-        const body = new URLSearchParams({ side, upload_token: currentRoom.token, ai_id: aiId });
-        const r = await fetch(`${apiBase}/rooms/${currentRoom.code}/bind`, {
-          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body,
-        });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.detail || '绑定失败');
-        statusEl.textContent = `✓ 已绑定: ${d.display}`;
-        statusEl.className = 'ok';
-      } catch (e) {
-        statusEl.textContent = `✗ ${e.message}`;
-        statusEl.className = 'err';
-      } finally {
-        btn.disabled = false;
-      }
-    }
-    document.getElementById('create-bind-ai-btn').onclick = () => bindExistingToRoom(
-      'red', document.getElementById('create-existing-ai').value,
-      document.getElementById('room-upload-status'), document.getElementById('create-bind-ai-btn'));
-    document.getElementById('join-bind-ai-btn').onclick = () => bindExistingToRoom(
-      'blue', document.getElementById('join-existing-ai').value,
-      document.getElementById('join-upload-status'), document.getElementById('join-bind-ai-btn'));
-
-    // 模板按钮(create/join 都有)
-    document.querySelectorAll('#room-view .upload-tpl button').forEach(b => {
-      b.onclick = () => {
-        const ta = b.closest('.room-pane').querySelector('textarea');
-        ta.value = TEMPLATES[b.dataset.tpl] || '';
-      };
-    });
-
-    const startBtns = [...document.querySelectorAll('.start-room-match')];
-    let pollTimer = null;
-    let roomGameId = '';
-    function connectRoomGame(gameId) {
-      if (!gameId) return;
-      roomGameId = gameId;
-      gameIdInput.value = gameId;
-      allEvents = []; cursor = 0;
-      autoReplayAfterLive = true;
-      activateView('arena-view');
-      connect();
-    }
-    function showRoomGameFallback(gameId) {
-      for (const prefix of ['create', 'join']) {
-        const wrap = document.getElementById(`${prefix}-game-fallback`);
-        const code = document.getElementById(`${prefix}-game-id`);
-        if (wrap && code) {
-          code.textContent = gameId;
-          wrap.hidden = false;
-        }
-      }
-    }
-    document.getElementById('create-connect-game').onclick = () =>
-      connectRoomGame(document.getElementById('create-game-id').textContent);
-    document.getElementById('join-connect-game').onclick = () =>
-      connectRoomGame(document.getElementById('join-game-id').textContent);
-    function startPollingRoom(code) {
-      if (pollTimer) clearInterval(pollTimer);
-      pollTimer = setInterval(async () => {
-        try {
-          const r = await fetch(`${apiBase}/rooms/${code}`);
-          if (!r.ok) return;
-          const d = await r.json();
-          const creator = currentRoom && currentRoom.isCreator;
-          if (d.status === 'ready') {
-            startBtns.forEach(btn => {
-              btn.disabled = !creator;
-              btn.textContent = creator ? '双方就绪，开始对局' : '双方就绪，等待房主开赛...';
-            });
-          } else if ((d.status === 'running' || d.status === 'done') && d.game_id && d.game_id !== roomGameId) {
-            showRoomGameFallback(d.game_id);
-            clearInterval(pollTimer);
-            connectRoomGame(d.game_id);
-          } else {
-            startBtns.forEach(btn => {
-              btn.disabled = true;
-              btn.textContent = `等待双方上传 (${d.status})...`;
-            });
-          }
-        } catch {}
-      }, 2000);
-    }
-    startBtns.forEach(startBtn => {
-      startBtn.onclick = async () => {
-        if (!currentRoom) return;
-        startBtn.disabled = true;
-        try {
-          const body = new URLSearchParams({ requester_token: currentRoom.token, max_turns: '20' });
-          const r = await fetch(`${apiBase}/rooms/${currentRoom.code}/start`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body,
-          });
-          const d = await r.json();
-          if (!r.ok) throw new Error(d.detail || '开赛失败');
-          gameIdInput.value = d.game_id;
-          roomGameId = d.game_id;
-          showRoomGameFallback(d.game_id);
-          allEvents = []; cursor = 0;
-          setStatus(`房间 ${d.code} 开赛!game=${d.game_id}`, 'ok');
-          activateView('arena-view');
-          connect();
-        } catch (e) {
-          setStatus(`开赛失败: ${e.message}`, 'err');
-          startBtn.disabled = false;
-        }
-      };
-    });
   </script>
 </body>
 </html>

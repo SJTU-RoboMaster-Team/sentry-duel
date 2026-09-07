@@ -1,6 +1,6 @@
 """store.py - 持久化层
 
-SQLite 单文件存 AI 元数据 + 房间状态。
+SQLite 单文件存 AI 元数据、评测结果与排行榜。
 uploads/<author>/<name>.{cpp,so} 存编译产物和源码。
 
 部署提示:把 DATA_DIR 环境变量指到云盘路径即可跨机器持久化。
@@ -12,7 +12,6 @@ import os
 import sqlite3
 import threading
 import time
-import secrets
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
@@ -31,6 +30,9 @@ REPLAYS_DIR.mkdir(parents=True, exist_ok=True)
 
 TECHNICAL_DOCS_DIR = DATA_DIR / "technical_documents"
 TECHNICAL_DOCS_DIR.mkdir(parents=True, exist_ok=True)
+
+LEADERBOARD_DIR = DATA_DIR / "leaderboard"
+LEADERBOARD_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = DATA_DIR / "app.db"
 
@@ -74,18 +76,6 @@ def init_db() -> None:
             display_name TEXT NOT NULL,
             updated_at REAL NOT NULL
         );
-
-        CREATE TABLE IF NOT EXISTS rooms (
-            code TEXT PRIMARY KEY,
-            red_slot TEXT,    -- JSON {author,name,display,ai_id} 或 NULL
-            blue_slot TEXT,
-            status TEXT NOT NULL,    -- waiting_red / waiting_blue / ready / running / done / abandoned
-            creator_token TEXT NOT NULL,
-            game_id TEXT,
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status);
 
         CREATE TABLE IF NOT EXISTS competition_jobs (
             id TEXT PRIMARY KEY,
@@ -146,6 +136,64 @@ def init_db() -> None:
             size INTEGER NOT NULL,
             uploaded_at REAL NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS leaderboard_entries (
+            author TEXT PRIMARY KEY,
+            login TEXT NOT NULL,
+            ai_id INTEGER NOT NULL,
+            ai_name TEXT NOT NULL,
+            binary_path TEXT NOT NULL,
+            source_path TEXT,
+            source_filename TEXT,
+            binary_sha256 TEXT NOT NULL,
+            source_sha256 TEXT,
+            is_open_source INTEGER NOT NULL,
+            submitted_at REAL NOT NULL,
+            ranked_at REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS leaderboard_matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            challenger_author TEXT NOT NULL,
+            opponent_author TEXT NOT NULL,
+            challenger_wins INTEGER NOT NULL,
+            opponent_wins INTEGER NOT NULL,
+            draws INTEGER NOT NULL,
+            challenger_score INTEGER NOT NULL,
+            opponent_score INTEGER NOT NULL,
+            played_at REAL NOT NULL,
+            UNIQUE(challenger_author, opponent_author)
+        );
+        CREATE INDEX IF NOT EXISTS idx_leaderboard_matches_opponent
+            ON leaderboard_matches(opponent_author);
+
+        CREATE TABLE IF NOT EXISTS leaderboard_submissions (
+            id TEXT PRIMARY KEY,
+            author TEXT NOT NULL,
+            login TEXT NOT NULL,
+            jaccount TEXT NOT NULL,
+            ai_id INTEGER NOT NULL,
+            ai_name TEXT NOT NULL,
+            is_open_source INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            total_opponents INTEGER NOT NULL,
+            completed_opponents INTEGER NOT NULL DEFAULT 0,
+            snapshot_dir TEXT NOT NULL,
+            binary_sha256 TEXT NOT NULL,
+            source_sha256 TEXT,
+            error TEXT,
+            created_at REAL NOT NULL,
+            started_at REAL,
+            ended_at REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_leaderboard_submissions_author
+            ON leaderboard_submissions(author, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS leaderboard_daily_snapshots (
+            snapshot_date TEXT PRIMARY KEY,
+            standings TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
         """)
         columns = {row["name"] for row in c.execute("PRAGMA table_info(ais)")}
         if "is_public" not in columns:
@@ -156,22 +204,11 @@ def init_db() -> None:
             SET status='failed', error='服务重启，对局中断', ended_at=?
             WHERE status IN ('pending', 'running')
         """, (time.time(),))
-
-
-def gen_author_token() -> str:
-    """匿名 / 临时身份 - 16 字符十六进制"""
-    return secrets.token_hex(8)
-
-
-def gen_room_code() -> str:
-    """6 位大写字母 + 数字,排除易混字符"""
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    while True:
-        code = "".join(secrets.choice(alphabet) for _ in range(6))
-        with _conn() as c:
-            row = c.execute("SELECT 1 FROM rooms WHERE code=?", (code,)).fetchone()
-            if not row:
-                return code
+        c.execute("""
+            UPDATE leaderboard_submissions
+            SET status='failed', error='服务重启，排行榜评测中断', ended_at=?
+            WHERE status IN ('pending', 'running')
+        """, (time.time(),))
 
 
 # --- AI 元数据 ---------------------------------------------------------
@@ -215,15 +252,6 @@ def list_ais_for_author(author: str) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM ais WHERE author=? ORDER BY created_at DESC", (author,)
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def list_all_ais() -> list[dict]:
-    """平台可见的全部 AI(供房间选对手)"""
-    with _conn() as c:
-        rows = c.execute(
-            "SELECT * FROM ais ORDER BY created_at DESC LIMIT 200"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -291,7 +319,7 @@ def so_path_for(ai_id: int) -> Optional[Path]:
     return p if p.exists() else None
 
 
-# --- 正式比赛与入围赛 -------------------------------------------------
+# --- 批量测试与入围赛 -------------------------------------------------
 
 _COMPETITION_FIELDS = {
     "status", "completed_games", "ai_a_score", "ai_b_score",
@@ -339,8 +367,14 @@ def create_competition_jobs(specs: list[dict]) -> list[dict]:
             "SELECT COUNT(*) FROM competition_jobs "
             "WHERE status IN ('pending','running')"
         ).fetchone()[0]
+        leaderboard_active = c.execute(
+            "SELECT 1 FROM leaderboard_submissions "
+            "WHERE status IN ('pending','running') LIMIT 1"
+        ).fetchone()
         if active_for_user:
             raise ValueError("当前账号已有批量比赛正在运行")
+        if leaderboard_active:
+            raise ValueError("排行榜评测正在运行，请稍后再试")
         if active_total + len(specs) > 2:
             raise ValueError("比赛队列已满，请稍后再试")
         for spec in specs:
@@ -397,6 +431,260 @@ def update_competition_job(job_id: str, **fields) -> Optional[dict]:
             [*fields.values(), job_id],
         )
     return get_competition_job(job_id)
+
+
+# --- AI 排行榜 ---------------------------------------------------------
+
+_LEADERBOARD_SUBMISSION_FIELDS = {
+    "status", "completed_opponents", "error", "started_at", "ended_at",
+}
+
+
+def create_leaderboard_submission(submission_id: str, author: str, login: str,
+                                  jaccount: str, ai_id: int, ai_name: str,
+                                  is_open_source: bool, snapshot_dir: str,
+                                  binary_sha256: str,
+                                  source_sha256: Optional[str]) -> dict:
+    now = time.time()
+    with _lock, _conn() as c:
+        if c.execute(
+            "SELECT 1 FROM leaderboard_submissions "
+            "WHERE status IN ('pending','running') LIMIT 1"
+        ).fetchone():
+            raise ValueError("已有排行榜评测正在运行，请稍后再试")
+        if c.execute(
+            "SELECT 1 FROM competition_jobs "
+            "WHERE status IN ('pending','running') LIMIT 1"
+        ).fetchone():
+            raise ValueError("当前有批量测试或入围评测正在运行，请稍后再试")
+        recent = c.execute(
+            "SELECT COUNT(*) FROM leaderboard_submissions "
+            "WHERE author=? AND created_at>=?", (author, now - 24 * 60 * 60)
+        ).fetchone()[0]
+        if recent >= 3:
+            raise ValueError("每个账号 24 小时内最多提交 3 次排行榜评测")
+        opponents = c.execute(
+            "SELECT COUNT(*) FROM leaderboard_entries WHERE author<>?", (author,)
+        ).fetchone()[0]
+        c.execute("""
+            INSERT INTO leaderboard_submissions
+                (id,author,login,jaccount,ai_id,ai_name,is_open_source,status,
+                 total_opponents,snapshot_dir,binary_sha256,source_sha256,created_at)
+            VALUES (?,?,?,?,?,?,?,'pending',?,?,?,?,?)
+        """, (
+            submission_id, author, login, jaccount, ai_id, ai_name,
+            1 if is_open_source else 0, opponents, snapshot_dir,
+            binary_sha256, source_sha256, now,
+        ))
+    return get_leaderboard_submission(submission_id)
+
+
+def get_leaderboard_submission(submission_id: str) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM leaderboard_submissions WHERE id=?", (submission_id,)
+        ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["is_open_source"] = bool(result["is_open_source"])
+        return result
+
+
+def latest_leaderboard_submission(author: str) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT id FROM leaderboard_submissions WHERE author=? "
+            "ORDER BY created_at DESC LIMIT 1", (author,)
+        ).fetchone()
+    return get_leaderboard_submission(row["id"]) if row else None
+
+
+def update_leaderboard_submission(submission_id: str, **fields) -> Optional[dict]:
+    invalid = set(fields) - _LEADERBOARD_SUBMISSION_FIELDS
+    if invalid:
+        raise ValueError(f"不支持的排行榜任务字段: {', '.join(sorted(invalid))}")
+    if not fields:
+        return get_leaderboard_submission(submission_id)
+    assignments = ",".join(f"{key}=?" for key in fields)
+    with _conn() as c:
+        c.execute(
+            f"UPDATE leaderboard_submissions SET {assignments} WHERE id=?",
+            [*fields.values(), submission_id],
+        )
+    return get_leaderboard_submission(submission_id)
+
+
+def list_leaderboard_entries(exclude_author: Optional[str] = None) -> list[dict]:
+    with _conn() as c:
+        if exclude_author is None:
+            rows = c.execute(
+                "SELECT * FROM leaderboard_entries ORDER BY ranked_at"
+            ).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT * FROM leaderboard_entries WHERE author<>? ORDER BY ranked_at",
+                (exclude_author,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_leaderboard_entry(author: str) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM leaderboard_entries WHERE author=?", (author,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_leaderboard_entry_by_ai_id(ai_id: int) -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM leaderboard_entries WHERE ai_id=?", (ai_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def promote_leaderboard_submission(submission_id: str,
+                                   source_path: Optional[str],
+                                   source_filename: Optional[str],
+                                   matches: list[dict]) -> None:
+    submission = get_leaderboard_submission(submission_id)
+    if not submission:
+        raise ValueError("排行榜提交不存在")
+    author = submission["author"]
+    now = time.time()
+    binary_path = str(Path(submission["snapshot_dir"]) / "candidate.so")
+    with _lock, _conn() as c:
+        c.execute(
+            "DELETE FROM leaderboard_matches "
+            "WHERE challenger_author=? OR opponent_author=?", (author, author)
+        )
+        c.execute("""
+            INSERT INTO leaderboard_entries
+                (author,login,ai_id,ai_name,binary_path,source_path,source_filename,
+                 binary_sha256,source_sha256,is_open_source,submitted_at,ranked_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(author) DO UPDATE SET
+                login=excluded.login, ai_id=excluded.ai_id,
+                ai_name=excluded.ai_name, binary_path=excluded.binary_path,
+                source_path=excluded.source_path,
+                source_filename=excluded.source_filename,
+                binary_sha256=excluded.binary_sha256,
+                source_sha256=excluded.source_sha256,
+                is_open_source=excluded.is_open_source,
+                submitted_at=excluded.submitted_at, ranked_at=excluded.ranked_at
+        """, (
+            author, submission["login"], submission["ai_id"],
+            submission["ai_name"], binary_path, source_path, source_filename,
+            submission["binary_sha256"], submission["source_sha256"],
+            1 if submission["is_open_source"] else 0,
+            submission["created_at"], now,
+        ))
+        for match in matches:
+            c.execute("""
+                INSERT INTO leaderboard_matches
+                    (challenger_author,opponent_author,challenger_wins,
+                     opponent_wins,draws,challenger_score,opponent_score,played_at)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, (
+                author, match["opponent_author"], match["challenger_wins"],
+                match["opponent_wins"], match["draws"],
+                match["challenger_score"], match["opponent_score"], now,
+            ))
+        c.execute("""
+            UPDATE leaderboard_submissions
+            SET status='done', completed_opponents=total_opponents, ended_at=?
+            WHERE id=?
+        """, (now, submission_id))
+
+
+def leaderboard_standings() -> list[dict]:
+    with _conn() as c:
+        entry_rows = c.execute("""
+            SELECT e.*, p.display_name AS owner_name
+            FROM leaderboard_entries e
+            LEFT JOIN user_profiles p ON p.author=e.author
+        """).fetchall()
+        match_rows = c.execute("SELECT * FROM leaderboard_matches").fetchall()
+    standings: dict[str, dict] = {}
+    for row in entry_rows:
+        entry = dict(row)
+        standings[entry["author"]] = {
+            "author": entry["author"], "ai_id": entry["ai_id"],
+            "ai_name": entry["ai_name"],
+            "public_id": f"AI-{entry['ai_id']:04d}",
+            "owner_name": entry["owner_name"] or entry["login"],
+            "is_open_source": bool(entry["is_open_source"]),
+            "wins": 0, "losses": 0, "draws": 0,
+            "score_for": 0, "score_against": 0, "opponents": 0,
+            "ranked_at": entry["ranked_at"],
+        }
+    for row in match_rows:
+        match = dict(row)
+        challenger = standings.get(match["challenger_author"])
+        opponent = standings.get(match["opponent_author"])
+        if challenger is None or opponent is None:
+            continue
+        challenger["wins"] += match["challenger_wins"]
+        challenger["losses"] += match["opponent_wins"]
+        challenger["draws"] += match["draws"]
+        challenger["score_for"] += match["challenger_score"]
+        challenger["score_against"] += match["opponent_score"]
+        challenger["opponents"] += 1
+        opponent["wins"] += match["opponent_wins"]
+        opponent["losses"] += match["challenger_wins"]
+        opponent["draws"] += match["draws"]
+        opponent["score_for"] += match["opponent_score"]
+        opponent["score_against"] += match["challenger_score"]
+        opponent["opponents"] += 1
+    rows = list(standings.values())
+    for row in rows:
+        games = row["wins"] + row["losses"] + row["draws"]
+        row["games"] = games
+        row["score_rate"] = ((row["wins"] + 0.5 * row["draws"]) / games
+                             if games else None)
+        row["win_rate"] = row["wins"] / games if games else None
+        row["average_margin"] = (
+            (row["score_for"] - row["score_against"]) / games if games else None
+        )
+    rows.sort(key=lambda row: (
+        -(row["score_rate"] if row["score_rate"] is not None else -1),
+        -(row["win_rate"] if row["win_rate"] is not None else -1),
+        -(row["average_margin"] if row["average_margin"] is not None else -10**9),
+        row["ranked_at"], row["public_id"],
+    ))
+    for rank, row in enumerate(rows, 1):
+        row["rank"] = rank
+        row.pop("author")
+    return rows
+
+
+def save_daily_leaderboard_snapshot(snapshot_date: str,
+                                    standings: list[dict]) -> bool:
+    with _conn() as c:
+        cursor = c.execute("""
+            INSERT OR IGNORE INTO leaderboard_daily_snapshots
+                (snapshot_date,standings,created_at) VALUES (?,?,?)
+        """, (
+            snapshot_date,
+            json.dumps(standings, ensure_ascii=False, separators=(",", ":")),
+            time.time(),
+        ))
+        return cursor.rowcount > 0
+
+
+def latest_daily_leaderboard_snapshot() -> Optional[dict]:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM leaderboard_daily_snapshots "
+            "ORDER BY snapshot_date DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["standings"] = json.loads(result["standings"])
+        return result
 
 
 def upsert_qualification(author: str, login: str, jaccount: str,
@@ -526,48 +814,3 @@ def list_admin_qualifier_participants() -> list[dict]:
                 "qualifier_jobs": jobs,
             })
         return participants
-
-
-# --- 房间 ---------------------------------------------------------------
-
-def create_room(creator_token: str) -> dict:
-    code = gen_room_code()
-    now = time.time()
-    with _conn() as c:
-        c.execute("""
-            INSERT INTO rooms (code, status, creator_token, created_at, updated_at)
-            VALUES (?, 'waiting_red', ?, ?, ?)
-        """, (code, creator_token, now, now))
-    return get_room(code)
-
-
-def get_room(code: str) -> Optional[dict]:
-    with _conn() as c:
-        row = c.execute("SELECT * FROM rooms WHERE code=?", (code,)).fetchone()
-        if not row:
-            return None
-        d = dict(row)
-        d["red_slot"] = json.loads(d["red_slot"]) if d["red_slot"] else None
-        d["blue_slot"] = json.loads(d["blue_slot"]) if d["blue_slot"] else None
-        return d
-
-
-def update_room(code: str, **fields) -> Optional[dict]:
-    """更新房间字段;支持 red_slot / blue_slot (dict→JSON) / status / game_id。"""
-    sets, vals = [], []
-    for k, v in fields.items():
-        if k in ("red_slot", "blue_slot"):
-            v = json.dumps(v) if v is not None else None
-        sets.append(f"{k}=?")
-        vals.append(v)
-    sets.append("updated_at=?")
-    vals.append(time.time())
-    vals.append(code)
-    with _conn() as c:
-        c.execute(f"UPDATE rooms SET {','.join(sets)} WHERE code=?", vals)
-    return get_room(code)
-
-
-def delete_room(code: str) -> None:
-    with _conn() as c:
-        c.execute("DELETE FROM rooms WHERE code=?", (code,))

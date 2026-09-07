@@ -1,6 +1,6 @@
 # 哨兵大战 AI 接口规范
 
-本文档以当前引擎实现为准。普通提交默认接收一份 C++ AI 源码；房间对战和 AI 代码库也支持第 9 节所述的多文件源码包。
+本文档以当前引擎实现为准。AI 代码库支持提交一份 C++ AI 源码，也支持第 9 节所述的多文件源码包。
 
 ## 1. 必须实现的函数
 
@@ -184,8 +184,8 @@ extern "C" void act(const Board& board, char my_color) {
 
 ## 9. 多文件源码包提交
 
-除单文件源码外,房间对战还支持以压缩包形式提交多文件项目:
-`POST /api/rooms/{code}/upload_pack`(表单字段 `side` / `upload_token` / `name` / `display` / `file`)。
+除单文件源码外，AI 代码库还支持以压缩包形式提交多文件项目：
+`POST /api/upload_pack`，表单字段为 `name` 和 `file`。
 
 **压缩包要求**
 
@@ -202,9 +202,29 @@ extern "C" void act(const Board& board, char my_color) {
 - 没有 `Makefile` 时,用标准命令编译项目根那一层的全部 `.cpp`
   (更深层子目录的源码不参与编译,请在根层 `.cpp` 中组织好代码)
 - 主源码优先取 `my_ai.cpp`,它决定 AI 列表中展示的源码
-- 编译限时 120 秒;失败会返回编译器输出,房间状态不受影响,修正后可重新上传
+- 编译限时 120 秒；失败会返回编译器输出，修正后可重新上传
 
-## 10. 入围赛技术文档
+## 10. 批量测试与 AI 排行榜
+
+### 10.1 批量测试
+
+- 发起测试：`POST /api/competitions/batch`，JSON 字段为 `ai_a`、`ai_b`
+- 查看本人任务：`GET /api/competitions/batch`
+- 查看单个任务：`GET /api/competitions/{job_id}`
+- 每次测试共 100 局，两个 AI 双方各执红方 50 局
+
+### 10.2 AI 排行榜
+
+- 查询动态榜单：`GET /api/leaderboard`
+- 提交打榜：`POST /api/leaderboard/submissions`，JSON 字段为整数 `ai_id` 和布尔值 `is_open_source`
+- 查询本人提交：`GET /api/leaderboard/submissions/{submission_id}`
+- 下载开源榜单快照：`GET /api/leaderboard/entries/{ai_id}/source`
+
+每个 JAccount 只保留一个有效榜位，24 小时内最多提交 3 次。新提交会与当前榜内所有其他 AI 分别进行 20 局比赛，双方各执红方 10 局；全部比赛成功后才原子替换旧榜位。任一对战失败时，旧榜位与旧成绩保持不变。
+
+排名使用综合得分率 `(胜局 + 0.5 × 平局) / 总局数`，同分时依次比较胜率、平均净胜分与入榜时间。动态榜单在打榜完成后立即更新，系统每天另存一份官方快照。选择开源后，对外下载的是打榜时固定保存的源码，而不是代码库中后来修改的版本。
+
+## 11. 入围赛技术文档
 
 技术文档是入围材料，但不作为发起技术评测或显示已有入围结果的前置条件。支持 PDF、DOCX 和 Markdown，单文件不超过 20MB；每个账号保留最新上传的一份。
 
