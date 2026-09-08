@@ -7,12 +7,15 @@ uploads/<author>/<name>.{cpp,so} 存编译产物和源码。
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -149,6 +152,7 @@ def init_db() -> None:
             binary_sha256 TEXT NOT NULL,
             source_sha256 TEXT,
             is_open_source INTEGER NOT NULL,
+            is_anonymous INTEGER NOT NULL DEFAULT 0,
             submitted_at REAL NOT NULL,
             ranked_at REAL NOT NULL
         );
@@ -177,6 +181,7 @@ def init_db() -> None:
             ai_id INTEGER NOT NULL,
             ai_name TEXT NOT NULL,
             is_open_source INTEGER NOT NULL,
+            is_anonymous INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL,
             total_opponents INTEGER NOT NULL,
             completed_opponents INTEGER NOT NULL DEFAULT 0,
@@ -216,6 +221,14 @@ def init_db() -> None:
         }
         if "entry_key" not in submission_columns:
             c.execute("ALTER TABLE leaderboard_submissions ADD COLUMN entry_key TEXT")
+        if "is_anonymous" not in entry_columns:
+            c.execute(
+                "ALTER TABLE leaderboard_entries ADD COLUMN is_anonymous INTEGER NOT NULL DEFAULT 0"
+            )
+        if "is_anonymous" not in submission_columns:
+            c.execute(
+                "ALTER TABLE leaderboard_submissions ADD COLUMN is_anonymous INTEGER NOT NULL DEFAULT 0"
+            )
         c.execute(
             "UPDATE leaderboard_submissions SET entry_key=author "
             "WHERE entry_key IS NULL OR entry_key=''"
@@ -464,9 +477,11 @@ _LEADERBOARD_SUBMISSION_FIELDS = {
 def create_leaderboard_submission(submission_id: str, author: str,
                                   entry_key: str, login: str, jaccount: str,
                                   ai_id: int, ai_name: str,
-                                  is_open_source: bool, snapshot_dir: str,
+                                  is_open_source: bool, is_anonymous: bool,
+                                  snapshot_dir: str,
                                   binary_sha256: str,
-                                  source_sha256: Optional[str]) -> dict:
+                                  source_sha256: Optional[str],
+                                  daily_limit: Optional[int] = 10) -> dict:
     now = time.time()
     with _lock, _conn() as c:
         if c.execute(
@@ -479,24 +494,27 @@ def create_leaderboard_submission(submission_id: str, author: str,
             "WHERE status IN ('pending','running') LIMIT 1"
         ).fetchone():
             raise ValueError("当前有批量测试或入围评测正在运行，请稍后再试")
+        today_start = datetime.now().astimezone().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).timestamp()
         recent = c.execute(
             "SELECT COUNT(*) FROM leaderboard_submissions "
-            "WHERE author=? AND created_at>=?", (author, now - 24 * 60 * 60)
+            "WHERE author=? AND created_at>=?", (author, today_start)
         ).fetchone()[0]
-        if recent >= 3:
-            raise ValueError("每个账号 24 小时内最多提交 3 次排行榜评测")
+        if daily_limit is not None and recent >= daily_limit:
+            raise ValueError(f"每个账号每天最多提交 {daily_limit} 次排行榜评测")
         opponents = c.execute(
             "SELECT COUNT(*) FROM leaderboard_entries WHERE author<>?",
             (entry_key,),
         ).fetchone()[0]
         c.execute("""
             INSERT INTO leaderboard_submissions
-                (id,author,entry_key,login,jaccount,ai_id,ai_name,is_open_source,status,
+                (id,author,entry_key,login,jaccount,ai_id,ai_name,is_open_source,is_anonymous,status,
                  total_opponents,snapshot_dir,binary_sha256,source_sha256,created_at)
-            VALUES (?,?,?,?,?,?,?,?,'pending',?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,'pending',?,?,?,?,?)
         """, (
             submission_id, author, entry_key, login, jaccount, ai_id, ai_name,
-            1 if is_open_source else 0, opponents, snapshot_dir,
+            1 if is_open_source else 0, 1 if is_anonymous else 0, opponents, snapshot_dir,
             binary_sha256, source_sha256, now,
         ))
     return get_leaderboard_submission(submission_id)
@@ -511,6 +529,7 @@ def get_leaderboard_submission(submission_id: str) -> Optional[dict]:
             return None
         result = dict(row)
         result["is_open_source"] = bool(result["is_open_source"])
+        result["is_anonymous"] = bool(result["is_anonymous"])
         return result
 
 
@@ -572,6 +591,68 @@ def leaderboard_entry_ai_ids(account_author: str) -> list[int]:
         ]
 
 
+def ensure_builtin_leaderboard_entries() -> None:
+    """把官方 Baseline/Hunter 作为固定榜位加入排行榜。"""
+    builtins = (
+        ("builtin:baseline_ai", -1, "Baseline", "baseline_ai"),
+        ("builtin:hunter_ai", -2, "Hunter", "hunter_ai"),
+    )
+    source_root = PROJECT_DIR / "ai"
+    with _lock, _conn() as c:
+        for entry_key, ai_id, ai_name, stem in builtins:
+            source_path = source_root / f"{stem}.cpp"
+            binary_path = source_root / f"{stem}.so"
+            if not source_path.is_file() or not binary_path.is_file():
+                continue
+            snapshot_dir = LEADERBOARD_DIR / entry_key.replace(":", "-")
+            snapshot_dir.mkdir(parents=True, exist_ok=True)
+            snapshot_binary = snapshot_dir / "candidate.so"
+            snapshot_source = snapshot_dir / f"{stem}.cpp"
+            shutil.copy2(binary_path, snapshot_binary)
+            shutil.copy2(source_path, snapshot_source)
+            c.execute("""
+                INSERT INTO leaderboard_entries
+                    (author,account_author,login,ai_id,ai_name,binary_path,source_path,
+                     source_filename,binary_sha256,source_sha256,is_open_source,is_anonymous,
+                     submitted_at,ranked_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(author) DO UPDATE SET
+                    binary_path=excluded.binary_path, source_path=excluded.source_path,
+                    source_filename=excluded.source_filename,
+                    binary_sha256=excluded.binary_sha256, source_sha256=excluded.source_sha256
+            """, (
+                entry_key, entry_key, "交龙官方", ai_id, ai_name,
+                str(snapshot_binary), str(snapshot_source), snapshot_source.name,
+                hashlib.sha256(snapshot_binary.read_bytes()).hexdigest(),
+                hashlib.sha256(snapshot_source.read_bytes()).hexdigest(),
+                1, 0, source_path.stat().st_mtime, source_path.stat().st_mtime,
+            ))
+
+
+def leaderboard_match_exists(entry_a: str, entry_b: str) -> bool:
+    with _conn() as c:
+        return c.execute(
+            "SELECT 1 FROM leaderboard_matches "
+            "WHERE (challenger_author=? AND opponent_author=?) "
+            "OR (challenger_author=? AND opponent_author=?) LIMIT 1",
+            (entry_a, entry_b, entry_b, entry_a),
+        ).fetchone() is not None
+
+
+def record_leaderboard_match(challenger: str, opponent: str,
+                             result: dict) -> None:
+    with _lock, _conn() as c:
+        c.execute("""
+            INSERT OR IGNORE INTO leaderboard_matches
+                (challenger_author,opponent_author,challenger_wins,
+                 opponent_wins,draws,challenger_score,opponent_score,played_at)
+            VALUES (?,?,?,?,?,?,?,?)
+        """, (
+            challenger, opponent, result["a_wins"], result["b_wins"],
+            result["draws"], result["a_score"], result["b_score"], time.time(),
+        ))
+
+
 def get_leaderboard_entry_by_ai_id(ai_id: int) -> Optional[dict]:
     with _conn() as c:
         row = c.execute(
@@ -599,8 +680,8 @@ def promote_leaderboard_submission(submission_id: str,
         c.execute("""
             INSERT INTO leaderboard_entries
                 (author,account_author,login,ai_id,ai_name,binary_path,source_path,source_filename,
-                 binary_sha256,source_sha256,is_open_source,submitted_at,ranked_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 binary_sha256,source_sha256,is_open_source,is_anonymous,submitted_at,ranked_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(author) DO UPDATE SET
                 account_author=excluded.account_author,
                 login=excluded.login, ai_id=excluded.ai_id,
@@ -610,12 +691,14 @@ def promote_leaderboard_submission(submission_id: str,
                 binary_sha256=excluded.binary_sha256,
                 source_sha256=excluded.source_sha256,
                 is_open_source=excluded.is_open_source,
+                is_anonymous=excluded.is_anonymous,
                 submitted_at=excluded.submitted_at, ranked_at=excluded.ranked_at
         """, (
             entry_key, author, submission["login"], submission["ai_id"],
             submission["ai_name"], binary_path, source_path, source_filename,
             submission["binary_sha256"], submission["source_sha256"],
             1 if submission["is_open_source"] else 0,
+            1 if submission["is_anonymous"] else 0,
             submission["created_at"], now,
         ))
         for match in matches:
@@ -647,11 +730,19 @@ def leaderboard_standings() -> list[dict]:
     standings: dict[str, dict] = {}
     for row in entry_rows:
         entry = dict(row)
+        public_id = {
+            -1: "BASELINE",
+            -2: "HUNTER",
+        }.get(entry["ai_id"], f"AI-{entry['ai_id']:04d}")
         standings[entry["author"]] = {
             "author": entry["author"], "ai_id": entry["ai_id"],
             "ai_name": entry["ai_name"],
-            "public_id": f"AI-{entry['ai_id']:04d}",
-            "owner_name": entry["owner_name"] or entry["login"],
+            "public_id": public_id,
+            "owner_name": (
+                "匿名选手" if entry["is_anonymous"]
+                else entry["owner_name"] or entry["login"]
+            ),
+            "is_anonymous": bool(entry["is_anonymous"]),
             "is_open_source": bool(entry["is_open_source"]),
             "wins": 0, "losses": 0, "draws": 0,
             "score_for": 0, "score_against": 0, "opponents": 0,

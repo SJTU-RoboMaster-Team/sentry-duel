@@ -49,14 +49,16 @@ from store import (
     get_leaderboard_entry_by_ai_id,
     get_leaderboard_submission, latest_daily_leaderboard_snapshot,
     latest_leaderboard_submission, leaderboard_standings,
-    leaderboard_entry_ai_ids,
+    leaderboard_entry_ai_ids, leaderboard_match_exists,
     get_technical_document, list_admin_qualifier_participants,
     is_author_qualified, list_ais_for_author, list_leaderboard_entries,
     list_public_ais, list_selectable_ais,
     promote_leaderboard_submission,
+    record_leaderboard_match,
     qualified_user_count, record_ai, record_technical_document, set_ai_public,
     save_daily_leaderboard_snapshot, update_competition_job,
     update_leaderboard_submission, upsert_qualification, upsert_user_profile,
+    ensure_builtin_leaderboard_entries,
 )
 from jobs import ENGINE_BIN, HUMAN_ENGINE_BIN
 from competitions import run_balanced_series
@@ -476,6 +478,7 @@ def _leaderboard_submission_metadata(submission: Optional[dict]) -> Optional[dic
         "id": submission["id"], "ai_id": submission["ai_id"],
         "ai_name": submission["ai_name"],
         "is_open_source": bool(submission["is_open_source"]),
+        "is_anonymous": bool(submission["is_anonymous"]),
         "status": submission["status"],
         "total_opponents": submission["total_opponents"],
         "completed_opponents": submission["completed_opponents"],
@@ -583,10 +586,13 @@ async def submit_to_leaderboard(request: Request):
     payload = await request.json()
     ai_id = payload.get("ai_id")
     is_open_source = payload.get("is_open_source", False)
+    is_anonymous = payload.get("is_anonymous", False)
     if not isinstance(ai_id, int):
         raise HTTPException(400, "ai_id 必须是整数")
     if not isinstance(is_open_source, bool):
         raise HTTPException(400, "is_open_source 必须是布尔值")
+    if not isinstance(is_anonymous, bool):
+        raise HTTPException(400, "is_anonymous 必须是布尔值")
     author = _user_author(user)
     allow_multiple = _is_admin_user(user)
     ai = get_ai(ai_id)
@@ -601,9 +607,9 @@ async def submit_to_leaderboard(request: Request):
         snapshot = _snapshot_leaderboard_ai(submission_id, ai)
         submission = create_leaderboard_submission(
             submission_id, author, entry_key, user["login"], user["jaccount"],
-            ai["id"], ai["name"], is_open_source,
+            ai["id"], ai["name"], is_open_source, is_anonymous,
             str(snapshot["directory"]), snapshot["binary_sha256"],
-            snapshot["source_sha256"],
+            snapshot["source_sha256"], None if allow_multiple else 10,
         )
     except ValueError as exc:
         if snapshot:
@@ -653,9 +659,27 @@ async def _daily_leaderboard_snapshot_loop() -> None:
         await asyncio.sleep(max(1, (next_day - now).total_seconds()))
 
 
+async def _bootstrap_builtin_leaderboard() -> None:
+    ensure_builtin_leaderboard_entries()
+    entries = list_leaderboard_entries()
+    for index, first in enumerate(entries):
+        for second in entries[index + 1:]:
+            if not (first["author"].startswith("builtin:")
+                    or second["author"].startswith("builtin:")):
+                continue
+            if leaderboard_match_exists(first["author"], second["author"]):
+                continue
+            result = await asyncio.to_thread(
+                run_balanced_series, Path(first["binary_path"]),
+                Path(second["binary_path"]), LEADERBOARD_GAMES_PER_SIDE, None,
+            )
+            record_leaderboard_match(first["author"], second["author"], result)
+
+
 @app.on_event("startup")
 async def start_daily_leaderboard_snapshots() -> None:
     global leaderboard_snapshot_task
+    await _bootstrap_builtin_leaderboard()
     leaderboard_snapshot_task = asyncio.create_task(
         _daily_leaderboard_snapshot_loop()
     )

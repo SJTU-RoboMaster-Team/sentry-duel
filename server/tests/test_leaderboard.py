@@ -1,6 +1,7 @@
 """AI 排行榜提交、排名和源码快照行为。"""
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import time
 from pathlib import Path
@@ -11,6 +12,8 @@ from fastapi.testclient import TestClient
 import app as app_module
 import store
 
+REAL_BOOTSTRAP_BUILTINS = app_module._bootstrap_builtin_leaderboard
+
 
 @pytest.fixture(autouse=True)
 def clean_leaderboard(monkeypatch, tmp_path):
@@ -18,6 +21,13 @@ def clean_leaderboard(monkeypatch, tmp_path):
     directory.mkdir()
     monkeypatch.setattr(app_module, "LEADERBOARD_DIR", directory)
     monkeypatch.setattr(store, "LEADERBOARD_DIR", directory)
+
+    async def skip_builtin_bootstrap():
+        pass
+
+    monkeypatch.setattr(
+        app_module, "_bootstrap_builtin_leaderboard", skip_builtin_bootstrap
+    )
     with store._conn() as connection:
         connection.execute("DELETE FROM leaderboard_matches")
         connection.execute("DELETE FROM leaderboard_entries")
@@ -64,11 +74,15 @@ def _record_ai(user: str, name: str, source: str = "// ranked source") -> dict:
 
 
 def _submit(client: TestClient, user: str, ai_id: int,
-            open_source: bool = False):
+            open_source: bool = False, anonymous: bool = False):
     return client.post(
         "/api/leaderboard/submissions",
         headers=_headers(user),
-        json={"ai_id": ai_id, "is_open_source": open_source},
+        json={
+            "ai_id": ai_id,
+            "is_open_source": open_source,
+            "is_anonymous": anonymous,
+        },
     )
 
 
@@ -169,6 +183,20 @@ def test_closed_source_and_submission_ownership(client):
     assert _submit(client, "other", ai["id"]).status_code == 404
 
 
+def test_anonymous_entry_hides_owner_but_keeps_ai_identity(client):
+    ai = _record_ai("anonymous", "anonymous-ai")
+    response = _submit(client, "anonymous", ai["id"], anonymous=True)
+    assert response.status_code == 200, response.text
+    _wait_for_submission(client, "anonymous", response.json()["id"])
+
+    standings = client.get(
+        "/api/leaderboard", headers=_headers("other")
+    ).json()["standings"]
+    assert standings[0]["ai_name"] == "anonymous-ai"
+    assert standings[0]["owner_name"] == "匿名选手"
+    assert standings[0]["is_anonymous"] is True
+
+
 def test_replacement_is_one_entry_and_failure_keeps_previous_entry(
         client, monkeypatch):
     opponent = _record_ai("opponent", "opponent-ai")
@@ -251,6 +279,69 @@ def test_admin_can_keep_multiple_entries_that_play_each_other(
     assert all(entry["games"] == 20 for entry in listing["standings"])
 
 
+def test_daily_limit_is_ten_and_privileged_account_is_unlimited(
+        client, monkeypatch):
+    regular = _record_ai("regular-limit", "regular-ai")
+    privileged = _record_ai("admin", "admin-unlimited")
+    now = time.time()
+    with store._conn() as connection:
+        for user, ai in (("regular-limit", regular), ("admin", privileged)):
+            author = f"contest-{user}"
+            for index in range(10):
+                connection.execute("""
+                    INSERT INTO leaderboard_submissions
+                        (id,author,entry_key,login,jaccount,ai_id,ai_name,
+                         is_open_source,is_anonymous,status,total_opponents,
+                         snapshot_dir,binary_sha256,created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,'done',0,?,?,?)
+                """, (
+                    f"past-{user}-{index}", author, author, f"login-{user}",
+                    f"ja-{user}", ai["id"], ai["name"], 0, 0,
+                    f"/tmp/past-{user}-{index}", "hash", now,
+                ))
+
+    limited = _submit(client, "regular-limit", regular["id"])
+    assert limited.status_code == 409
+    assert "每天最多提交 10 次" in limited.json()["detail"]
+
+    monkeypatch.setenv("SENTRY_DUEL_ADMIN_JACCOUNTS", "ja-admin")
+    unlimited = _submit(client, "admin", privileged["id"])
+    assert unlimited.status_code == 200, unlimited.text
+    _wait_for_submission(client, "admin", unlimited.json()["id"])
+
+
+def test_builtin_ais_are_ranked_and_play_each_other(
+        client, monkeypatch, tmp_path):
+    project_dir = tmp_path / "project"
+    ai_dir = project_dir / "ai"
+    ai_dir.mkdir(parents=True)
+    for stem in ("baseline_ai", "hunter_ai"):
+        (ai_dir / f"{stem}.cpp").write_text(f"// {stem}")
+        (ai_dir / f"{stem}.so").write_bytes(f"binary-{stem}".encode())
+    monkeypatch.setattr(store, "PROJECT_DIR", project_dir)
+    calls = []
+
+    def fake_series(a, b, games_per_side, progress):
+        calls.append((Path(a), Path(b), games_per_side))
+        return _series(10, 8, 2)
+
+    monkeypatch.setattr(app_module, "run_balanced_series", fake_series)
+    asyncio.run(REAL_BOOTSTRAP_BUILTINS())
+
+    entries = store.list_leaderboard_entries()
+    assert {entry["ai_id"] for entry in entries} == {-1, -2}
+    assert all(entry["is_open_source"] for entry in entries)
+    assert len(calls) == 1
+    assert calls[0][2] == 10
+    standings = client.get(
+        "/api/leaderboard", headers=_headers("viewer")
+    ).json()["standings"]
+    assert {entry["public_id"] for entry in standings} == {
+        "BASELINE", "HUNTER",
+    }
+    assert all(entry["games"] == 20 for entry in standings)
+
+
 def test_init_db_migrates_existing_leaderboard_rows(monkeypatch, tmp_path):
     old_db = tmp_path / "old-app.db"
     with sqlite3.connect(old_db) as connection:
@@ -304,6 +395,8 @@ def test_init_db_migrates_existing_leaderboard_rows(monkeypatch, tmp_path):
 
     assert "account_author" in entry_columns
     assert "entry_key" in submission_columns
+    assert "is_anonymous" in entry_columns
+    assert "is_anonymous" in submission_columns
     assert entry["account_author"] == "contest-old"
     assert submission["entry_key"] == "contest-old"
 

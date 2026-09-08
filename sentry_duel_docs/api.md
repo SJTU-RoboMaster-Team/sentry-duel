@@ -216,11 +216,11 @@ extern "C" void act(const Board& board, char my_color) {
 ### 10.2 AI 排行榜
 
 - 查询动态榜单：`GET /api/leaderboard`
-- 提交打榜：`POST /api/leaderboard/submissions`，JSON 字段为整数 `ai_id` 和布尔值 `is_open_source`
+- 提交打榜：`POST /api/leaderboard/submissions`，JSON 字段为整数 `ai_id`、布尔值 `is_open_source` 和布尔值 `is_anonymous`
 - 查询本人提交：`GET /api/leaderboard/submissions/{submission_id}`
 - 下载开源榜单快照：`GET /api/leaderboard/entries/{ai_id}/source`
 
-每个 JAccount 只保留一个有效榜位，24 小时内最多提交 3 次。新提交会与当前榜内所有其他 AI 分别进行 20 局比赛，双方各执红方 10 局；全部比赛成功后才原子替换旧榜位。任一对战失败时，旧榜位与旧成绩保持不变。
+榜单默认包含官方 Baseline 与 Hunter。每个 JAccount 默认保留一个有效榜位，每天最多提交 10 次。新提交会与当前榜内所有其他 AI 分别进行 20 局比赛，双方各执红方 10 局；全部比赛成功后才原子更新榜位。任一对战失败时，原有榜位与成绩保持不变。`is_anonymous=true` 时榜单保留 AI 名称与公开编号，但将选手显示为“匿名选手”。
 
 排名使用综合得分率 `(胜局 + 0.5 × 平局) / 总局数`，同分时依次比较胜率、平均净胜分与入榜时间。动态榜单在打榜完成后立即更新，系统每天另存一份官方快照。选择开源后，对外下载的是打榜时固定保存的源码，而不是代码库中后来修改的版本。
 
