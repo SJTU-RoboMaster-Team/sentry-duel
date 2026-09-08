@@ -78,6 +78,15 @@ active_runs: dict[str, tuple] = {}
 active_human: dict[str, tuple] = {}
 active_competitions: dict[str, asyncio.Task] = {}
 active_leaderboard: dict[str, asyncio.Task] = {}
+contest_user_cache: dict[str, tuple[float, dict]] = {}
+CONTEST_USER_CACHE_TTL = 30.0
+
+
+async def _wait_for_process(proc: subprocess.Popen) -> int:
+    """Wait for a child process without occupying the shared worker pool."""
+    while proc.poll() is None:
+        await asyncio.sleep(0.2)
+    return proc.returncode
 
 
 def _stop_human_session(game_id: str, session: tuple) -> None:
@@ -117,6 +126,13 @@ async def _contest_user(request: Request) -> dict:
     cookie = request.headers.get("cookie", "")
     if not cookie:
         raise HTTPException(401, "请先登录交龙账号")
+    cache_key = hashlib.sha256(cookie.encode("utf-8")).hexdigest()
+    cached = contest_user_cache.get(cache_key)
+    now = time.monotonic()
+    if cached and cached[0] > now:
+        return cached[1].copy()
+    if cached:
+        contest_user_cache.pop(cache_key, None)
 
     def fetch_profile() -> dict:
         req = urllib.request.Request(
@@ -154,6 +170,7 @@ async def _contest_user(request: Request) -> dict:
             "name": real_name,
             "display": real_name}
     upsert_user_profile(_user_author(user), real_name)
+    contest_user_cache[cache_key] = (now + CONTEST_USER_CACHE_TTL, user.copy())
     return user
 
 
@@ -1209,7 +1226,7 @@ async def run_match(request: Request):
     active_runs[game_id] = (proc, replay_file)
 
     async def _wait_then_done():
-        await asyncio.to_thread(proc.wait)
+        await _wait_for_process(proc)
         replay_file.close()
         active_runs.pop(game_id, None)
 
@@ -1262,7 +1279,7 @@ async def start_human_match(request: Request):
 
     async def _wait_human():
         try:
-            await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=30 * 60)
+            await asyncio.wait_for(_wait_for_process(proc), timeout=30 * 60)
         except asyncio.TimeoutError:
             _stop_human_session(game_id, (proc, replay_file, user["id"]))
             return

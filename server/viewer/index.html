@@ -1285,7 +1285,12 @@ extern "C" void act(const Board& board, char my_color) {
         console.error(err);
       }
     }
-    setInterval(refreshAiList, 5000);  // 5s 拉一次,捕获其他窗口上传
+    setInterval(() => {
+      const activeViews = ['arena-view', 'human-view', 'formal-view'];
+      if (activeViews.some(view => document.querySelector(`[data-view="${view}"]`).classList.contains('active'))) {
+        refreshAiList();
+      }
+    }, 30000);
 
     function populateFormalAiSelects(ais) {
       const a = document.getElementById('formal-ai-a');
@@ -1980,11 +1985,11 @@ extern "C" void act(const Board& board, char my_color) {
     refreshQualifiers();
     setInterval(() => {
       refreshUserChip();
-      refreshMyAis();
       if (document.querySelector('[data-view="code-view"]').classList.contains('active')) {
+        refreshMyAis();
         refreshPublicAis();
       }
-    }, 5000);
+    }, 30000);
     setInterval(() => {
       if (formalHasActiveJobs && document.querySelector('[data-view="formal-view"]').classList.contains('active')) {
         refreshFormalCompetitions();
