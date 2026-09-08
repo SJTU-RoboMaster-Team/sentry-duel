@@ -78,6 +78,7 @@ h1 span { color: var(--muted); font-size: 0.62em; font-weight: 500; }
 .human-tab-mark { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border: 1px solid var(--green); background: var(--green); }
 .human-mode-active .matchup-controls, .human-mode-active .replay-controls { display: none; }
 .rules-view-active .controls, .rules-view-active .meta, .rules-view-active .legend, .admin-view-active .controls, .admin-view-active .meta, .admin-view-active .legend { display: none; }
+body:not(.arena-view-active) .controls, body:not(.arena-view-active) .meta, body:not(.arena-view-active) .legend { display: none; }
 .app-view[hidden] { display: none !important; }
 
 .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
