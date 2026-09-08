@@ -242,11 +242,11 @@ def test_replacement_is_one_entry_and_failure_keeps_previous_entry(
 
 def test_admin_can_keep_multiple_entries_that_play_each_other(
         client, monkeypatch):
-    monkeypatch.setenv("SENTRY_DUEL_ADMIN_JACCOUNTS", "ja-admin")
     first = _record_ai("admin", "admin-first")
     first_response = _submit(client, "admin", first["id"])
     assert first_response.status_code == 200, first_response.text
     _wait_for_submission(client, "admin", first_response.json()["id"])
+    assert store.get_leaderboard_entry("contest-admin")["ai_id"] == first["id"]
 
     calls = []
 
@@ -255,6 +255,7 @@ def test_admin_can_keep_multiple_entries_that_play_each_other(
         return _series(9, 9, 2)
 
     monkeypatch.setattr(app_module, "run_balanced_series", fake_series)
+    monkeypatch.setenv("SENTRY_DUEL_ADMIN_JACCOUNTS", "ja-admin")
     second = _record_ai("admin", "admin-second")
     second_response = _submit(client, "admin", second["id"])
     assert second_response.status_code == 200, second_response.text

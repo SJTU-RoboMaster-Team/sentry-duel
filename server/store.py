@@ -591,6 +591,43 @@ def leaderboard_entry_ai_ids(account_author: str) -> list[int]:
         ]
 
 
+def migrate_leaderboard_entry_to_ai_key(account_author: str) -> None:
+    """首次使用多榜位权限时迁移该账号原有的单榜位键。"""
+    with _lock, _conn() as c:
+        entry = c.execute(
+            "SELECT ai_id FROM leaderboard_entries WHERE author=?",
+            (account_author,),
+        ).fetchone()
+        if not entry:
+            return
+        entry_key = f"{account_author}:ai:{entry['ai_id']}"
+        if c.execute(
+            "SELECT 1 FROM leaderboard_entries WHERE author=?", (entry_key,)
+        ).fetchone():
+            c.execute(
+                "DELETE FROM leaderboard_matches "
+                "WHERE challenger_author=? OR opponent_author=?",
+                (account_author, account_author),
+            )
+            c.execute(
+                "DELETE FROM leaderboard_entries WHERE author=?",
+                (account_author,),
+            )
+        else:
+            c.execute(
+                "UPDATE leaderboard_matches SET challenger_author=? "
+                "WHERE challenger_author=?", (entry_key, account_author),
+            )
+            c.execute(
+                "UPDATE leaderboard_matches SET opponent_author=? "
+                "WHERE opponent_author=?", (entry_key, account_author),
+            )
+            c.execute(
+                "UPDATE leaderboard_entries SET author=? WHERE author=?",
+                (entry_key, account_author),
+            )
+
+
 def ensure_builtin_leaderboard_entries() -> None:
     """把官方 Baseline/Hunter 作为固定榜位加入排行榜。"""
     builtins = (

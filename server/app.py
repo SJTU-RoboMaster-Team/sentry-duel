@@ -53,6 +53,7 @@ from store import (
     get_technical_document, list_admin_qualifier_participants,
     is_author_qualified, list_ais_for_author, list_leaderboard_entries,
     list_public_ais, list_selectable_ais,
+    migrate_leaderboard_entry_to_ai_key,
     promote_leaderboard_submission,
     record_leaderboard_match,
     qualified_user_count, record_ai, record_technical_document, set_ai_public,
@@ -600,6 +601,8 @@ async def submit_to_leaderboard(request: Request):
         raise HTTPException(404, "只能提交当前账号拥有的 AI")
     if not Path(ai["so_path"]).is_file():
         raise HTTPException(404, "AI 编译产物不存在")
+    if allow_multiple:
+        migrate_leaderboard_entry_to_ai_key(author)
     submission_id = f"leaderboard-{int(time.time() * 1000)}-{secrets.token_hex(3)}"
     entry_key = f"{author}:ai:{ai['id']}" if allow_multiple else author
     snapshot = None
