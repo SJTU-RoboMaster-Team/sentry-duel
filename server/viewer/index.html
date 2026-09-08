@@ -1938,6 +1938,11 @@ extern "C" void act(const Board& board, char my_color) {
         list.innerHTML = `<span class="err">${err.message}</span>`;
       }
     }
+    function startJAccountLogin() {
+      const redirect = location.pathname + location.search + location.hash;
+      window.location.href = '/contest/api/auth/jaccount?redirect=' + encodeURIComponent(redirect);
+    }
+
     async function refreshUserChip() {
       const chip = document.getElementById('user-chip');
       const name = document.getElementById('user-chip-name');
@@ -1949,10 +1954,7 @@ extern "C" void act(const Board& board, char my_color) {
           name.textContent = '点击登录';
           chip.classList.add('user-chip-anon');
           chip.title = '请先登录交龙';
-          chip.onclick = () => {
-            const redirect = location.pathname + location.search + location.hash;
-            window.location.href = '/contest/api/auth/jaccount?redirect=' + encodeURIComponent(redirect);
-          };
+          chip.onclick = startJAccountLogin;
           return;
         }
         const data = await resp.json();
@@ -1963,9 +1965,10 @@ extern "C" void act(const Board& board, char my_color) {
         chip.onclick = null;
       } catch (err) {
         updateAdminAccess(false);
-        name.textContent = '登录服务异常';
+        name.textContent = '重新登录';
         chip.classList.add('user-chip-anon');
-        chip.onclick = null;
+        chip.title = '登录状态已失效，点击重新登录';
+        chip.onclick = startJAccountLogin;
       }
     }
 
