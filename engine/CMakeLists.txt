@@ -39,4 +39,47 @@ if(BUILD_TESTING)
     target_include_directories(test_free_turn PRIVATE include)
     target_link_options(test_free_turn PRIVATE -rdynamic)
     add_test(NAME free_turn_rules COMMAND test_free_turn)
+
+    add_library(opening_probe_ai MODULE tests/opening_probe_ai.cpp)
+    set_target_properties(opening_probe_ai PROPERTIES PREFIX "")
+    target_include_directories(opening_probe_ai PRIVATE include)
+    add_test(
+        NAME runner_opening_intel
+        COMMAND ${CMAKE_COMMAND} -E env
+                "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:sentry_duel_engine>"
+                $<TARGET_FILE:runner>
+                --red $<TARGET_FILE:opening_probe_ai>
+                --blue $<TARGET_FILE:opening_probe_ai>
+                --max-turns 1)
+    set_tests_properties(runner_opening_intel PROPERTIES
+        PASS_REGULAR_EXPRESSION "\"side\":\"B\",\"action\":\"turn\",\"arg\":\"N\"")
+
+    add_library(scan_probe_ai MODULE tests/scan_probe_ai.cpp)
+    set_target_properties(scan_probe_ai PROPERTIES PREFIX "")
+    target_include_directories(scan_probe_ai PRIVATE include)
+    add_test(
+        NAME runner_scan_visibility
+        COMMAND ${CMAKE_COMMAND} -E env
+                "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:sentry_duel_engine>"
+                $<TARGET_FILE:runner>
+                --red $<TARGET_FILE:scan_probe_ai>
+                --blue $<TARGET_FILE:scan_probe_ai>
+                --max-turns 3)
+    set_tests_properties(runner_scan_visibility PROPERTIES
+        PASS_REGULAR_EXPRESSION "\"side\":\"R\",\"action\":\"turn\",\"arg\":\"N\"")
+
+    add_library(timeout_probe_ai MODULE tests/timeout_probe_ai.cpp)
+    set_target_properties(timeout_probe_ai PROPERTIES PREFIX "")
+    target_include_directories(timeout_probe_ai PRIVATE include)
+    add_test(
+        NAME runner_repeated_timeout
+        COMMAND ${CMAKE_COMMAND} -E env
+                "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:sentry_duel_engine>"
+                $<TARGET_FILE:runner>
+                --red $<TARGET_FILE:timeout_probe_ai>
+                --blue $<TARGET_FILE:timeout_probe_ai>
+                --max-turns 2)
+    set_tests_properties(runner_repeated_timeout PROPERTIES
+        TIMEOUT 6
+        PASS_REGULAR_EXPRESSION "\"winner\":\"B\".*\"blue_score\":2")
 endif()

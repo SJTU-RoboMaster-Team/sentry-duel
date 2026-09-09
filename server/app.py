@@ -361,27 +361,19 @@ async def upload_ai_pack(request: Request, name: str = Form(...),
 
 @app.get("/api/me")
 async def api_me(request: Request):
-    """右上角登录状态用:返回当前 Contest JAccount 用户。未登录抛 401。
-    display 字段优先级:name(真实姓名) > jaccountAccount > login(GitHub)"""
+    """右上角登录状态用；不向浏览器返回账号标识。"""
     user = await _contest_user(request)
-    return {
-        "id": user["id"],
-        "login": user["login"],
-        "jaccount": user["jaccount"],
-        "name": user.get("name") or user["login"],
+    return JSONResponse({
         "display": user.get("name") or user["login"],
         "is_admin": _is_admin_user(user),
-    }
+    }, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/my-ais")
 async def list_my_ais(request: Request):
     user = await _contest_user(request)
     author = _user_author(user)
-    return {
-        "author": author,
-        "login": user["login"],
-        "jaccount": user["jaccount"],
+    return JSONResponse({
         "ais": [
             {
                 "name": ai["name"],
@@ -393,7 +385,7 @@ async def list_my_ais(request: Request):
             }
             for ai in list_ais_for_author(author)
         ],
-    }
+    }, headers={"Cache-Control": "no-store"})
 
 
 @app.patch("/api/my-ais/{ai_id}/visibility")
@@ -931,6 +923,7 @@ async def download_qualifier_document(request: Request):
     return FileResponse(
         path, media_type=document["media_type"],
         filename=document["original_name"],
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -1000,7 +993,7 @@ async def start_qualifier(request: Request):
 async def qualifiers(request: Request):
     user = await _contest_user(request)
     author = _user_author(user)
-    return {
+    return JSONResponse({
         "qualified_count": qualified_user_count(),
         "my_qualified": is_author_qualified(author),
         "technical_document": _technical_document_metadata(
@@ -1010,7 +1003,7 @@ async def qualifiers(request: Request):
             job for job in list_competition_jobs(author, "qualifier")
             if job["total_games"] == 100
         ],
-    }
+    }, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/admin/qualifiers")
@@ -1055,7 +1048,7 @@ async def admin_qualifiers(request: Request):
             "technical_document": document,
             "qualifier_jobs": jobs,
         })
-    return {
+    return JSONResponse({
         "summary": {
             "participants": len(participants),
             "evaluated": sum(bool(item["qualifications"]) for item in participants),
@@ -1063,7 +1056,7 @@ async def admin_qualifiers(request: Request):
             "documents": sum(item["technical_document"] is not None for item in participants),
         },
         "participants": participants,
-    }
+    }, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/admin/technical-documents/{participant_id}/download")
@@ -1083,6 +1076,7 @@ async def admin_download_technical_document(participant_id: str,
     return FileResponse(
         path, media_type=document["media_type"],
         filename=document["original_name"],
+        headers={"Cache-Control": "no-store"},
     )
 
 

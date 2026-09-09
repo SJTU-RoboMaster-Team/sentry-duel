@@ -250,7 +250,6 @@ ActionResult Match::do_action(int action, char local_arg, const char* name, bool
             scanned_this_act_ = true;
             remember_enemy(action_side_);
         } else if (outcome.hit) {
-            scanned_this_act_ = false;
             respawn_turn_pending(opponent_of(action_side_)) = true;
         }
         refresh_current_vision();
@@ -325,9 +324,6 @@ int Match::run() {
         if (red_result == 2) { winner_ = 2; reason_ = "red_crashed"; break; }
         if (red_result == 1) { board_.blue.score++; }
         end_side_turn(board_, 'R');
-        // [实验:取消先手补偿] 原本:蓝方获得红方初始位置情报作为先手补偿
-        // if (board_.turn == 0) remember_enemy('B');  // 2026-08-21 关闭,测试胜率
-
         const int blue_result = act_phase('B');
         if (blue_result == 2) { winner_ = 1; reason_ = "blue_crashed"; break; }
         if (blue_result == 1) { board_.red.score++; }

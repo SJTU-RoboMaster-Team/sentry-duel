@@ -12,9 +12,9 @@
 #include <string>
 #include <sys/time.h>
 
-static jmp_buf timeout_jmp;
-static void on_sigalrm(int) { longjmp(timeout_jmp, 1); }
-static void on_sigsegv(int) { longjmp(timeout_jmp, 2); }
+static sigjmp_buf timeout_jmp;
+static void on_sigalrm(int) { siglongjmp(timeout_jmp, 1); }
+static void on_sigsegv(int) { siglongjmp(timeout_jmp, 2); }
 
 struct SideState {
     void* handle = nullptr;
@@ -220,7 +220,6 @@ static ActionResult do_action(int action, char local_arg, const char* name, bool
             g_scanned_this_act = true;
             remember_enemy(g_action_side);
         } else if (outcome.hit) {
-            g_scanned_this_act = false;
             respawn_turn_pending(opponent_of(g_action_side)) = true;
         }
         refresh_current_vision();
@@ -262,7 +261,7 @@ static int call_ai_act(SideState& side) {
     g_scanned_this_act = false;
     g_target_visible = direct_vision(side_ch);
 
-    int rc = setjmp(timeout_jmp);
+    int rc = sigsetjmp(timeout_jmp, 1);
     if (rc != 0) {
         clear_timeout();
         return rc;
@@ -344,8 +343,6 @@ int main(int argc, char** argv) {
         if (red_result == 2) { winner = 2; reason = "red_crashed"; break; }
         if (red_result == 1) { g_board.blue.score++; std::fprintf(stderr, "[engine] red AI 超时，蓝方 +1\n"); }
         end_side_turn(g_board, 'R');
-        // 规则定义的先手补偿：蓝方仅获得红方回合结束时的位置情报，不获得可见状态。
-        if (g_board.turn == 0) remember_enemy('B');
         const int blue_result = call_ai_act(blue);
         if (blue_result == 2) { winner = 1; reason = "blue_crashed"; break; }
         if (blue_result == 1) { g_board.red.score++; std::fprintf(stderr, "[engine] blue AI 超时，红方 +1\n"); }

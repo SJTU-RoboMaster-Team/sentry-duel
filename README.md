@@ -1,126 +1,135 @@
-# 哨兵大战
+# 哨兵大战 · 引擎与可视化
 
-上海交通大学交龙战队校内赛 AI 赛道的开源比赛平台，包含 7x7 回合制比赛引擎、网页对战与回放前端、示例 AI，以及可直接用于 PPO 自我对弈训练的强化学习环境。
+7×7 网格回合制 1v1 AI 对战游戏。规则参见 `../sentry_duel_docs/`。
 
-在线赛事平台：<https://jiaoloong.sjtu.edu.cn/contest2026/>
+## 目录结构
 
-## 仓库内容
-
-```text
-engine/             C++17 规则引擎、对局运行器和人机对战运行器
-ai/                 Baseline/Hunter 示例与 RL 部署适配器
-rl/env/             pybind11 向量化训练环境
-rl/training/        PPO 训练、评测和 C++ 权重导出工具
-server/             FastAPI 接口与浏览器前端
-sentry_duel_docs/   比赛规则与选手 API 文档
-cli/                本地对局运行器
+```
+sentry_duel_engine/
+├── engine/           # C++ 引擎核心(选手 ABI + 规则引擎 + 调度)
+├── ai/               # 选手 AI 示例(随机、反应式、占点+攻击)
+├── cli/              # CLI 跑一局 → 录像 JSON
+├── server/           # FastAPI 可视化 + SSE 实时推送
+├── replays/          # 录像输出
+└── README.md
 ```
 
-仓库不包含训练权重、检查点、日志、编译产物、用户上传数据与生产环境部署配置。
+## 编译与运行
 
-## 环境要求
-
-- Linux（对局运行器使用 POSIX 信号和 `dlopen`）
-- CMake 3.10 或更高版本
-- 支持 C++17 的编译器
-- Python 3.10 或更高版本
-
-运行网页平台需要安装：
+### 1. 编译引擎
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r server/requirements.txt
+cd engine
+mkdir build && cd build
+cmake ..
+make
 ```
 
-进行 RL 训练还需安装：
+产物:`engine/build/runner` + `engine/build/libsentry_duel_engine.so`
+
+### 2. 编译 AI
 
 ```bash
-pip install -r requirements-rl.txt
+cd ai
+make
 ```
 
-## 构建并运行对局
+产物:`ai/baseline_ai.so`、`ai/hunter_ai.so`
+
+### 3. 跑一局(CLI)
 
 ```bash
-cmake -S engine -B engine/build
-cmake --build engine/build -j
-make -C ai
-python3 cli/run_match.py \
-  --red ai/baseline_ai.so \
-  --blue ai/hunter_ai.so \
-  --game-id demo
+cd sentry_duel_engine
+python3 cli/run_match.py --red ai/baseline_ai.so --blue ai/hunter_ai.so --game-id demo1
 ```
 
-## 运行网页平台
+输出:`replays/game_demo1.json`
+
+### 4. 启动可视化服务
 
 ```bash
+# 安装依赖(一次性)
+pip install --user --break-system-packages fastapi uvicorn
+
+# 启动
 cd server
-../.venv/bin/uvicorn app:app --host 127.0.0.1 --port 8000
+uvicorn app:app --reload --port 8000
+
+# 重启服务
+python3 -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-打开 <http://127.0.0.1:8000/>。本地模式默认使用测试账号；只有将 `SENTRY_DUEL_AUTH_REQUIRED` 设为 `1` 时才会启用生产环境的 JAccount 登录。
+浏览器打开 `http://localhost:8000/` 看最新一场;或 `/viewer/demo1` 看指定场。
 
-## 网页赛事功能
+观战页可直接选择红蓝 AI、设置最大回合数并点击“开始对局”，对局会通过 SSE 实时展示。
+加载已有录像后，可用“自动回放”按 1×、2× 或 5×速度播放，也可随时暂停和单步查看。
+
+页面顶部的“人机模式”可选择已上传 AI、红/蓝阵营和回合上限。每回合玩家最多连续完成 3 个消耗动作；游戏开始后及击杀复活后的第一次行动中，尚未离开出生点时首次转向免费。可按 `SPACE` 主动结束回合。玩家按棋盘方向使用 `W` 上、`A` 左、`S` 下、`D` 右：未朝向目标方向时先转向，再次按下才移动；`Q` 扫描、`E` 开火。顶部会显示玩家 FIRE/SCAN 冷却。动作仍由同一引擎规则实时结算。
+
+网页端还提供以下赛事功能：
 
 - “AI 代码库”集中管理本人 AI，并浏览、下载其他选手主动公开的源码。
 - “批量测试”让两个可见 AI 双方各执红方 50 局，汇总 100 局结果。
-- “AI 排行榜”默认包含官方 Baseline 与 Hunter；每个 JAccount 默认保留一个榜位，每天最多提交 10 次。新提交会与当前榜内所有其他榜位各进行 20 局平衡对战（红蓝各 10 局），全部成功后动态更新排名；提交时可选择匿名显示选手身份，任一对战失败时保留旧榜位。
-- 排行榜按 `(胜局 + 0.5 × 平局) / 总局数` 计算综合得分率，并每天保留一份官方快照。榜单会标记 AI 是否开源；开源下载固定为实际打榜时的源码快照。
+- “AI 排行榜”默认包含官方 Baseline 与 Hunter；每个 JAccount 默认保留一个榜位，每天最多提交 10 次。提交 AI 后，它会与当前榜内所有其他榜位各进行 20 局平衡对战（红蓝各 10 局），全部成功后动态更新排名；提交时可选择匿名显示选手身份，系统每天保留一份官方榜单快照。
+- 排行榜按综合得分率 `(胜局 + 0.5 × 平局) / 总局数` 排序，并标记该榜单版本是否开源。选择开源时，下载内容固定为本次打榜时的源码快照。
 
-## 强化学习训练
+## 自己写 AI
 
-首先构建比赛引擎、脚本对手和 Python 扩展：
+复制 `ai/baseline_ai.cpp`,改 `act()` 函数:
 
-```bash
-cmake -S engine -B engine/build
-cmake --build engine/build -j
-make -C ai
-bash rl/env/build.sh
+```cpp
+#include "sentry_duel.h"
+#include "utils.h"
+
+extern "C" void act(const Board& board, char my_color) {
+    const Sentry& me  = (my_color == 'R') ? board.red  : board.blue;
+    const Sentry& opp = (my_color == 'R') ? board.blue : board.red;
+
+    // 你的策略:看到人就打
+    if (opp.visible && me.fire_cd == 0) {
+        fire();
+    }
+    // 看不到就雷达
+    if (me.scan_cd == 0) {
+        scan();
+    }
+    // 朝中心走
+    move();
+}
 ```
 
-运行小规模冒烟训练：
+编译:
 
 ```bash
-python3 rl/training/train.py \
-  --phase smoke \
-  --n-envs 8 \
-  --n-threads 4 \
-  --steps-per-iter 4096 \
-  --max-iters 5
+g++ -std=c++17 -O2 -fPIC -shared -Wl,-z,lazy -Wl,--allow-shlib-undefined \
+    -I../engine/include -L../engine/build \
+    -Wl,-rpath,'$ORIGIN/../engine/build' -lsentry_duel_engine \
+    your_ai.cpp -o your_ai.so
 ```
 
-运行联赛式自我对弈训练：
+参赛选手**只需** `engine/include/sentry_duel.h` 和 `engine/include/utils.h` 两个头文件 + 链接 `libsentry_duel_engine.so`。
 
-```bash
-python3 rl/training/train.py \
-  --phase league \
-  --n-envs 64 \
-  --n-threads 16 \
-  --steps-per-iter 65536
-```
+## 事件格式
 
-观测、动作、奖励和二进制权重契约见 [RL 训练契约](rl/SPEC.md)。训练产物会写入 `rl/weights`、`rl/checkpoints`、`rl/logs` 和 `rl/runs`，这些目录均已被 Git 忽略。
+引擎每行输出一个 JSON(也写入录像):
 
-将训练完成的策略导出到 C++ 选手运行时：
+| 类型 | 字段 |
+|---|---|
+| `start` | game_id, red, blue, size |
+| `turn_start` | turn |
+| `action` | turn, side, action(`move`/`turn`/`fire`/`scan`), arg(可选), success |
+| `turn_end` | turn, red_pos, blue_pos, red_score, blue_score, red_visible, blue_visible |
+| `game_over` | winner(`R`/`B`/`D`), reason, red_score, blue_score, turns |
 
-```bash
-python3 rl/training/export_cpp.py \
-  --weights rl/weights/final.sdw \
-  --out ai/rl_weights.h
-bash ai/build_rl_ai.sh
-```
+## 安全约束
 
-## 文档
+- 单次 `act()` 调用 ≤ 1 秒；超时方放弃该回合，对手立即 +1 分
+- 崩溃(SIGSEGV)整局判负
+- 选手 .so 调用 `move/turn/fire/scan` 由引擎解析,**不可直接传 `.so` 路径绕过引擎**
 
-- [完整比赛规则](sentry_duel_docs/rules.md)
-- [C++ 选手 API](sentry_duel_docs/api.md)
-- [RL 环境指南](rl/README.md)
-- [RL 训练契约](rl/SPEC.md)
+## 已知问题与后续工作
 
-## 安全说明
-
-选手源码和共享库都应视为不可信输入。仓库中的本地服务仅用于开发和演示。公网部署时，应增加操作系统级隔离、资源限制和带身份认证的反向代理。
-
-## 开源许可
-
-项目源码使用 [MIT 许可证](LICENSE)开源。`server/viewer/vendor` 中的第三方代码保留其原有许可说明。
+- [x] 蓝方 180° 镜像视角
+- [x] 平分时最多 5 个完整加时回合
+- [ ] 系统层沙箱(firejail/namespace)用于开放上传
+- [ ] 录像压缩 / 二进制格式 / 回放控制(快进、倒退、暂停)

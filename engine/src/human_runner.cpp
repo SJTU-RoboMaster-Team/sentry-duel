@@ -15,9 +15,9 @@
 #include <string>
 #include <sys/time.h>
 
-static jmp_buf timeout_jmp;
-static void on_sigalrm(int) { longjmp(timeout_jmp, 1); }
-static void on_sigsegv(int) { longjmp(timeout_jmp, 2); }
+static sigjmp_buf timeout_jmp;
+static void on_sigalrm(int) { siglongjmp(timeout_jmp, 1); }
+static void on_sigsegv(int) { siglongjmp(timeout_jmp, 2); }
 
 struct AiState {
     void* handle = nullptr;
@@ -37,7 +37,7 @@ static void clear_timeout() {
 }
 
 static int call_ai_act(AiState& ai, const Board& view, char side) {
-    int rc = setjmp(timeout_jmp);
+    int rc = sigsetjmp(timeout_jmp, 1);
     if (rc != 0) {
         clear_timeout();
         return rc;

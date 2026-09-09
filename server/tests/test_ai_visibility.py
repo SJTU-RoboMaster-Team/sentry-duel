@@ -40,6 +40,13 @@ def _legacy_ref(ai: dict) -> str:
     return f"uploaded/{ai['author']}/{ai['name']}.so"
 
 
+def test_my_ais_does_not_expose_account_identity(client):
+    response = client.get("/api/my-ais", headers=_headers("owner"))
+    assert response.status_code == 200
+    assert set(response.json()) == {"ais"}
+    assert response.headers["cache-control"] == "no-store"
+
+
 def test_existing_database_migrates_to_private(tmp_path, monkeypatch):
     db_path = tmp_path / "legacy.db"
     with sqlite3.connect(db_path) as connection:

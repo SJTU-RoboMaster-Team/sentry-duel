@@ -328,10 +328,14 @@ def test_admin_can_review_qualifiers_and_download_documents(client, monkeypatch)
         headers=_headers("outsider"),
     ).status_code == 403
 
-    me = client.get("/api/me", headers=_headers("admin")).json()
+    me_response = client.get("/api/me", headers=_headers("admin"))
+    assert me_response.headers["cache-control"] == "no-store"
+    me = me_response.json()
     assert me["is_admin"] is True
+    assert set(me) == {"display", "is_admin"}
     response = client.get("/api/admin/qualifiers", headers=_headers("admin"))
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
     reviewed = next(
         item for item in response.json()["participants"]
         if item["participant_id"] == candidate["author"]
