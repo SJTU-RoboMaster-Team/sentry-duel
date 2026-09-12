@@ -9,8 +9,14 @@
 #include <csetjmp>
 #include <csignal>
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <sys/time.h>
+#include <vector>
 
 static sigjmp_buf timeout_jmp;
 static void on_sigalrm(int) { siglongjmp(timeout_jmp, 1); }
@@ -284,6 +290,69 @@ static int call_ai_act(SideState& side) {
     return 0;
 }
 
+// dlopen 按 inode 去重:红蓝加载同一份 .so 时会拿到同一个 handle,于是 AI 里的
+// file-scope static 被两个玩家共用。给其中一侧准备一份不同 inode 的私有副本即可隔离。
+static bool same_file(const std::string& a, const std::string& b) {
+    struct stat sa {};
+    struct stat sb {};
+    if (::stat(a.c_str(), &sa) != 0 || ::stat(b.c_str(), &sb) != 0) return false;
+    return sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
+}
+
+static std::string make_private_copy(const std::string& src) {
+    std::ifstream in(src, std::ios::binary);
+    if (!in) return std::string();
+    const std::vector<char> data((std::istreambuf_iterator<char>(in)),
+                                 std::istreambuf_iterator<char>());
+    if (data.empty()) return std::string();
+
+    auto copy_into = [&data](int fd) {
+        std::size_t done = 0;
+        while (done < data.size()) {
+            const ssize_t written =
+                ::write(fd, data.data() + done, data.size() - done);
+            if (written <= 0) return false;
+            done += static_cast<std::size_t>(written);
+        }
+        return true;
+    };
+
+    // 优先放在原目录:选手 AI 可能用 dladdr 按自身路径加载同目录的资源/权重。
+    std::string dir = ".";
+    const std::size_t slash = src.find_last_of('/');
+    if (slash != std::string::npos) dir = src.substr(0, slash);
+    const std::string sibling =
+        dir + "/.sentry_ai_copy_" + std::to_string(::getpid()) + ".so";
+    int fd = ::open(sibling.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0755);
+    if (fd >= 0) {
+        bool ok = copy_into(fd);
+        if (::close(fd) != 0) ok = false;
+        if (ok) return sibling;
+        ::unlink(sibling.c_str());
+    }
+
+    // 原目录不可写时退回 /tmp(mkstemp 保证文件名唯一)。
+    char tmpl[] = "/tmp/sentry_ai_copy_XXXXXX";
+    fd = ::mkstemp(tmpl);
+    if (fd < 0) return std::string();
+    bool ok = copy_into(fd);
+    if (::close(fd) != 0) ok = false;
+    if (ok) {
+        ::chmod(tmpl, 0755);
+        return std::string(tmpl);
+    }
+    ::unlink(tmpl);
+    return std::string();
+}
+
+// 私有副本对局期间必须存在(映射已建立但资源仍可能按路径读取),退出时再删。
+struct PrivateCopyGuard {
+    std::string path;
+    ~PrivateCopyGuard() {
+        if (!path.empty()) ::unlink(path.c_str());
+    }
+};
+
 static SideState load_ai(const std::string& path, const std::string& name) {
     SideState side;
     side.name = name;
@@ -316,8 +385,21 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // 同源两侧(同一路径/硬链接/符号链接)会共享 AI 静态状态,给蓝方换成私有副本。
+    std::string blue_load_path = blue_path;
+    PrivateCopyGuard private_copy;
+    if (same_file(red_path, blue_path)) {
+        private_copy.path = make_private_copy(blue_path);
+        if (private_copy.path.empty()) {
+            std::fprintf(stderr, "[engine] 警告: 无法创建隔离副本,"
+                                 "红蓝将共享同一份 AI 静态状态\n");
+        } else {
+            blue_load_path = private_copy.path;
+        }
+    }
+
     SideState red = load_ai(red_path, "red");
-    SideState blue = load_ai(blue_path, "blue");
+    SideState blue = load_ai(blue_load_path, "blue");
     g_board = make_initial_board(7);
     g_red_respawn_turn_pending = true;
     g_blue_respawn_turn_pending = true;

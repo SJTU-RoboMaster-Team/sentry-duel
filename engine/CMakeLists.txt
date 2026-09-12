@@ -82,4 +82,20 @@ if(BUILD_TESTING)
     set_tests_properties(runner_repeated_timeout PROPERTIES
         TIMEOUT 6
         PASS_REGULAR_EXPRESSION "\"winner\":\"B\".*\"blue_score\":2")
+
+    # 同一个 .so 同时当红蓝时,两侧不能共享 file-scope static。
+    add_library(shared_state_probe_ai MODULE tests/shared_state_probe_ai.cpp)
+    set_target_properties(shared_state_probe_ai PROPERTIES PREFIX "")
+    target_include_directories(shared_state_probe_ai PRIVATE include)
+    add_test(
+        NAME runner_isolates_same_so
+        COMMAND ${CMAKE_COMMAND} -E env
+                "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:sentry_duel_engine>"
+                $<TARGET_FILE:runner>
+                --red $<TARGET_FILE:shared_state_probe_ai>
+                --blue $<TARGET_FILE:shared_state_probe_ai>
+                --max-turns 3)
+    set_tests_properties(runner_isolates_same_so PROPERTIES
+        PASS_REGULAR_EXPRESSION "side=B calls=1"
+        FAIL_REGULAR_EXPRESSION "SHARED_STATE_DETECTED")
 endif()
